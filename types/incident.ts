@@ -38,6 +38,8 @@ export interface Building {
   type: string;
   floors: number;
   notes?: string;
+  /** Dashboard: ground elevation at the building, metres. Same vertical datum as gps.altitude. */
+  groundElevationM?: number;
 }
 
 /** Crisis types that can be forced via TriageRequest.simulate (not UNKNOWN). */
@@ -81,6 +83,10 @@ export interface Incident {
   gps?: {
     lat: number;
     lng: number;
+    /** Dashboard: horizontal accuracy radius, metres (Geolocation API coords.accuracy). */
+    accuracy?: number;
+    /** Dashboard: altitude, metres, as reported by the device (Geolocation API coords.altitude). */
+    altitude?: number;
   };
   building?: Building;
   /** Snapshot of the user's ICE profile at the time of the SOS. */
