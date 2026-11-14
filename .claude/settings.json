@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -p \"['next','react','react-leaflet','leaflet','typescript'].map\\(p=>p+'@'+require\\('./node_modules/'+p+'/package.json'\\).version\\).join\\(' '\\)\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3000/dispatch)",
+      "Bash(curl -s http://localhost:3000/dispatch)",
+      "Bash(node --experimental-websocket check-map.mjs)",
+      "Bash(read p *)",
+      "Bash(curl -s http://localhost:3000__TRACKED_VAR__)",
+      "Bash(sed -i '' 's#ws.send\\(JSON.stringify\\({id:1,#ws.send\\(JSON.stringify\\({id:9,method:\"Emulation.setEmulatedMedia\",params:{features:[{name:\"prefers-reduced-motion\",value:\"no-preference\"}]}}\\)\\);await sleep\\(300\\);ws.send\\(JSON.stringify\\({id:1,#' probe.mjs)",
+      "Bash(sed -i '' 's#rulesRed:find.*}}\\)\\(\\)#}}\\)\\(\\)#' probe.mjs)",
+      "Bash(node --experimental-websocket probe.mjs)",
+      "WebFetch(domain:carto.com)",
+      "Bash(cd /Users/kirannew/Hackathons/silent-pulse && npx tsc --noEmit -p . && echo TSC_OK; npx eslint app/dispatch components/dispatch types && echo LINT_OK; cd /private/tmp/claude-503/-Users-kirannew-Hackathons-silent-pulse/684fa399-f8b4-415d-b54b-c958deccb276/scratchpad && node --experimental-websocket check-map.mjs 2>&1 | grep -E '\"tiles\\(Loaded\\)?\"|\"ok\"|\"fail\"|selectedRow|console' ; rm -rf chrome-*)",
+      "Bash(node -p \"require\\('react'\\).useEffectEvent ? 'runtime ok' : 'missing'\")",
+      "Bash(sed -e 's/\\\\.map :global\\(\\\\\\([^\\)]*\\\\\\)\\)/.sp-map \\\\1/g' -e 's/^\\\\.map {/.sp-map {/' IncidentMap.module.css)",
+      "Bash(rm IncidentMap.module.css)",
+      "Bash(node --experimental-websocket check-redesign.mjs)",
+      "Bash(node -e 'let s=\"\";process.stdin.on\\(\"data\",d=>s+=d\\).on\\(\"end\",\\(\\)=>{const o=JSON.parse\\(s.slice\\(s.indexOf\\(\"{\"\\)\\)\\);console.log\\(JSON.stringify\\({map:o.initial.map,scroll:o.initial.scroll,rowH:o.initial.rowHeight,markersInMap:o.initial.markers.every\\(m=>m.inMap\\),afterJ:o.afterJ,afterK:o.afterK,mapToQueue:o.afterMarkerClick,ack:o.afterAck.tabs,res:o.afterResolve.tabs,tiles:o.tiles,console:o.console},null,1\\)\\)}\\)')",
+      "Bash(node --experimental-websocket check-redesign.mjs 2>&1 | grep -E '\"rowHeight\"|\"console\"|\"bad\"' ; rm -rf chrome-*)"
+    ],
+    "additionalDirectories": [
+      "/private/tmp/claude-503/-Users-kirannew-Hackathons-silent-pulse/684fa399-f8b4-415d-b54b-c958deccb276/scratchpad"
+    ]
+  }
+}
