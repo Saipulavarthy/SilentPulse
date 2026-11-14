@@ -1,0 +1,2102 @@
+{
+  "attribution": "© OpenStreetMap contributors, ODbL 1.0",
+  "source": "Overpass API",
+  "generatedAt": "2026-11-14T19:23:43.431Z",
+  "bbox": {
+    "south": 42.3735889,
+    "west": -72.5416466,
+    "north": 42.4048534,
+    "east": -72.5045426
+  },
+  "count": 261,
+  "buildings": [
+    {
+      "name": "10 Allen",
+      "osmId": "way/217243440",
+      "lat": 42.383698,
+      "lng": -72.52339,
+      "levels": 4,
+      "height": null
+    },
+    {
+      "name": "472 North Pleasant Street",
+      "osmId": "relation/19376045",
+      "lat": 42.386648,
+      "lng": -72.523134,
+      "levels": 2,
+      "height": null
+    },
+    {
+      "name": "768 E Pleasant St",
+      "osmId": "way/217241774",
+      "lat": 42.404268,
+      "lng": -72.515354,
+      "levels": 2,
+      "height": null
+    },
+    {
+      "name": "Agricultural Engineering Annex A",
+      "osmId": "way/147156720",
+      "lat": 42.39227,
+      "lng": -72.53143,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Agricultural Engineering Annex B",
+      "osmId": "way/147156716",
+      "lat": 42.391548,
+      "lng": -72.531101,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Agricultural Engineering Center",
+      "osmId": "way/304036835",
+      "lat": 42.392002,
+      "lng": -72.531176,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Agricultural Engineering North",
+      "osmId": "way/304036834",
+      "lat": 42.392159,
+      "lng": -72.5309,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Agricultural Engineering South",
+      "osmId": "way/304036836",
+      "lat": 42.391664,
+      "lng": -72.530867,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Alumni House",
+      "osmId": "way/217242355",
+      "lat": 42.374223,
+      "lng": -72.517489,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Amherst Fire Department",
+      "osmId": "way/217056235",
+      "lat": 42.398841,
+      "lng": -72.515079,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Amherst Fire Department",
+      "osmId": "way/217242830",
+      "lat": 42.376894,
+      "lng": -72.520633,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Amherst History Museum",
+      "osmId": "way/217243114",
+      "lat": 42.3764,
+      "lng": -72.521281,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Amherst Inn",
+      "osmId": "way/217241630",
+      "lat": 42.375532,
+      "lng": -72.514671,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Amherst laser and skincare center",
+      "osmId": "way/217242946",
+      "lat": 42.380202,
+      "lng": -72.519769,
+      "levels": 2,
+      "height": null
+    },
+    {
+      "name": "Amherst Police Department",
+      "osmId": "way/217242369",
+      "lat": 42.375378,
+      "lng": -72.517045,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Amherst Post Office",
+      "osmId": "way/217242767",
+      "lat": 42.377764,
+      "lng": -72.51945,
+      "levels": 1,
+      "height": null
+    },
+    {
+      "name": "Amherst Town Hall",
+      "osmId": "way/217242609",
+      "lat": 42.37533,
+      "lng": -72.518482,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Amherst Tree and Grounds",
+      "osmId": "way/217241691",
+      "lat": 42.379781,
+      "lng": -72.515416,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Amherst Woman's Club",
+      "osmId": "way/217241314",
+      "lat": 42.376981,
+      "lng": -72.512832,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Amherst-Pelham Regional Middle School",
+      "osmId": "relation/2875748",
+      "lat": 42.38456,
+      "lng": -72.51046,
+      "levels": 2,
+      "height": null
+    },
+    {
+      "name": "Army ROTC",
+      "osmId": "way/147156733",
+      "lat": 42.385243,
+      "lng": -72.529726,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Arnold House",
+      "osmId": "way/216996563",
+      "lat": 42.394449,
+      "lng": -72.526078,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Astronomy",
+      "osmId": "way/149698370",
+      "lat": 42.394814,
+      "lng": -72.529659,
+      "levels": 1,
+      "height": null
+    },
+    {
+      "name": "Auxilliary Services Warehouse",
+      "osmId": "way/149698365",
+      "lat": 42.394031,
+      "lng": -72.535276,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Baker Hall",
+      "osmId": "way/217242795",
+      "lat": 42.389602,
+      "lng": -72.519777,
+      "levels": 4,
+      "height": null
+    },
+    {
+      "name": "Bangs Community Center",
+      "osmId": "way/217242605",
+      "lat": 42.376888,
+      "lng": -72.518355,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Bartlett Hall",
+      "osmId": "way/147156714",
+      "lat": 42.387908,
+      "lng": -72.528639,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Berkshire Dining Commons",
+      "osmId": "way/184350201",
+      "lat": 42.38194,
+      "lng": -72.529944,
+      "levels": 2,
+      "height": null
+    },
+    {
+      "name": "Berkshire House",
+      "osmId": "way/147156721",
+      "lat": 42.385557,
+      "lng": -72.528949,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Birch Hall",
+      "osmId": "way/220564408",
+      "lat": 42.387984,
+      "lng": -72.531262,
+      "levels": 5,
+      "height": null
+    },
+    {
+      "name": "Blaisdell House",
+      "osmId": "way/217245362",
+      "lat": 42.3901,
+      "lng": -72.530767,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Bowditch Hall",
+      "osmId": "way/1466891949",
+      "lat": 42.392742,
+      "lng": -72.531965,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Bowditch Lodge",
+      "osmId": "way/213384152",
+      "lat": 42.381473,
+      "lng": -72.534598,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Boyden & Perron",
+      "osmId": "way/217240752",
+      "lat": 42.374198,
+      "lng": -72.509147,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Boyden Gym",
+      "osmId": "way/130730304",
+      "lat": 42.386408,
+      "lng": -72.530487,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Brett Hall",
+      "osmId": "way/217243181",
+      "lat": 42.389648,
+      "lng": -72.521557,
+      "levels": 4,
+      "height": null
+    },
+    {
+      "name": "Brooks Hall",
+      "osmId": "way/217242999",
+      "lat": 42.389994,
+      "lng": -72.521141,
+      "levels": 5,
+      "height": null
+    },
+    {
+      "name": "Brown Hall",
+      "osmId": "way/216996564",
+      "lat": 42.397486,
+      "lng": -72.522985,
+      "levels": 8,
+      "height": null
+    },
+    {
+      "name": "Butterfield Hall",
+      "osmId": "way/217242558",
+      "lat": 42.388632,
+      "lng": -72.518284,
+      "levels": 4,
+      "height": null
+    },
+    {
+      "name": "Campus Center Parking Garage",
+      "osmId": "way/30698364",
+      "lat": 42.391242,
+      "lng": -72.529087,
+      "levels": 4,
+      "height": null
+    },
+    {
+      "name": "Cance Hall",
+      "osmId": "way/187132539",
+      "lat": 42.38117,
+      "lng": -72.529886,
+      "levels": 4,
+      "height": null
+    },
+    {
+      "name": "Cashin Hall",
+      "osmId": "way/216996565",
+      "lat": 42.397461,
+      "lng": -72.521737,
+      "levels": 8,
+      "height": null
+    },
+    {
+      "name": "Central Hall",
+      "osmId": "way/147156738",
+      "lat": 42.387852,
+      "lng": -72.529532,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Central Heating Plant",
+      "osmId": "way/149698359",
+      "lat": 42.389961,
+      "lng": -72.53711,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Chadbourne Hall",
+      "osmId": "way/217242668",
+      "lat": 42.389385,
+      "lng": -72.519097,
+      "levels": 5,
+      "height": null
+    },
+    {
+      "name": "Charles Drew House",
+      "osmId": "way/217242031",
+      "lat": 42.373644,
+      "lng": -72.516447,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Chenoweth Lab Addition",
+      "osmId": "way/304036840",
+      "lat": 42.392104,
+      "lng": -72.530362,
+      "levels": 4,
+      "height": null
+    },
+    {
+      "name": "Chenoweth Laboratory",
+      "osmId": "way/304036839",
+      "lat": 42.391592,
+      "lng": -72.530208,
+      "levels": 2,
+      "height": null
+    },
+    {
+      "name": "Clark Hall",
+      "osmId": "way/217243747",
+      "lat": 42.389203,
+      "lng": -72.523747,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Clark Hall Greenhouses",
+      "osmId": "way/1391070600",
+      "lat": 42.388992,
+      "lng": -72.523745,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Clark House",
+      "osmId": "way/217241725",
+      "lat": 42.373402,
+      "lng": -72.51511,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "CNS Research and Education Greenhouse",
+      "osmId": "way/147156713",
+      "lat": 42.39217,
+      "lng": -72.531857,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Cohan Dormitory",
+      "osmId": "way/217242179",
+      "lat": 42.373813,
+      "lng": -72.516635,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Cold Storage Building",
+      "osmId": "way/304036838",
+      "lat": 42.391609,
+      "lng": -72.530617,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Communication Disorders",
+      "osmId": "way/217242980",
+      "lat": 42.382863,
+      "lng": -72.520935,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Computer Science Building",
+      "osmId": "way/51650200",
+      "lat": 42.395167,
+      "lng": -72.531251,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Computer Science Laboratories",
+      "osmId": "way/1456797029",
+      "lat": 42.395366,
+      "lng": -72.530432,
+      "levels": 4,
+      "height": null
+    },
+    {
+      "name": "Conte National Polymer Research Center",
+      "osmId": "way/122196718",
+      "lat": 42.394346,
+      "lng": -72.527973,
+      "levels": 6,
+      "height": null
+    },
+    {
+      "name": "Coolidge Hall",
+      "osmId": "way/187132545",
+      "lat": 42.383805,
+      "lng": -72.530107,
+      "levels": 22,
+      "height": null
+    },
+    {
+      "name": "Cooper House",
+      "osmId": "way/217241636",
+      "lat": 42.373284,
+      "lng": -72.514354,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Crabtree Hall",
+      "osmId": "way/216996566",
+      "lat": 42.394065,
+      "lng": -72.525065,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Crampton Hall",
+      "osmId": "way/266763173",
+      "lat": 42.383255,
+      "lng": -72.528937,
+      "levels": 3,
+      "height": null
+    },
+    {
+      "name": "Crotty Hall",
+      "osmId": "way/905886928",
+      "lat": 42.384618,
+      "lng": -72.522184,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Curry Hicks Cage",
+      "osmId": "way/147156702",
+      "lat": 42.387215,
+      "lng": -72.528266,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "CVS Pharmacy",
+      "osmId": "way/217242940",
+      "lat": 42.376852,
+      "lng": -72.52038,
+      "levels": 1,
+      "height": null
+    },
+    {
+      "name": "DCR Amherst field office",
+      "osmId": "way/149698373",
+      "lat": 42.393511,
+      "lng": -72.535925,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Dickinson Hall",
+      "osmId": "way/147156743",
+      "lat": 42.389086,
+      "lng": -72.530407,
+      "levels": 2,
+      "height": null
+    },
+    {
+      "name": "Dickinson Homestead",
+      "osmId": "way/217241581",
+      "lat": 42.376308,
+      "lng": -72.514652,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Douglass Funeral Service",
+      "osmId": "way/217242717",
+      "lat": 42.377015,
+      "lng": -72.519464,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Draper Hall",
+      "osmId": "way/147156707",
+      "lat": 42.392404,
+      "lng": -72.528493,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Duda",
+      "osmId": "way/149698366",
+      "lat": 42.394655,
+      "lng": -72.530628,
+      "levels": 1,
+      "height": null
+    },
+    {
+      "name": "Durfee Conservatory",
+      "osmId": "way/217243405",
+      "lat": 42.390731,
+      "lng": -72.522668,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Dwight Hall",
+      "osmId": "way/216996567",
+      "lat": 42.395429,
+      "lng": -72.525261,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "East Experiment Station",
+      "osmId": "way/1059389317",
+      "lat": 42.393616,
+      "lng": -72.526046,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "East Stadium Stands",
+      "osmId": "way/145173739",
+      "lat": 42.377275,
+      "lng": -72.535328,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Elm Hall",
+      "osmId": "way/304034779",
+      "lat": 42.388144,
+      "lng": -72.530028,
+      "levels": 8,
+      "height": null
+    },
+    {
+      "name": "Emerson Hall",
+      "osmId": "way/187132542",
+      "lat": 42.383539,
+      "lng": -72.531267,
+      "levels": 3,
+      "height": null
+    },
+    {
+      "name": "Emily E. Dickinson House",
+      "osmId": "way/217242684",
+      "lat": 42.392176,
+      "lng": -72.519705,
+      "levels": 7,
+      "height": null
+    },
+    {
+      "name": "Engineering Laboratory I",
+      "osmId": "way/149698371",
+      "lat": 42.394749,
+      "lng": -72.53044,
+      "levels": 3,
+      "height": null
+    },
+    {
+      "name": "Engineering Laboratory II",
+      "osmId": "way/149698363",
+      "lat": 42.394404,
+      "lng": -72.531176,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Exscape Smoke Shop",
+      "osmId": "way/377667477",
+      "lat": 42.377483,
+      "lng": -72.520997,
+      "levels": 1,
+      "height": null
+    },
+    {
+      "name": "Farley Lodge",
+      "osmId": "way/213384154",
+      "lat": 42.381366,
+      "lng": -72.535094,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Fernald Hall",
+      "osmId": "way/217243423",
+      "lat": 42.388651,
+      "lng": -72.522518,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Field Hall",
+      "osmId": "way/304031887",
+      "lat": 42.391691,
+      "lng": -72.518701,
+      "levels": 7,
+      "height": null
+    },
+    {
+      "name": "Fieldstone Artisan",
+      "osmId": "way/1290335063",
+      "lat": 42.383447,
+      "lng": -72.525874,
+      "levels": 4,
+      "height": null
+    },
+    {
+      "name": "Fieldstone Slate",
+      "osmId": "way/1283066726",
+      "lat": 42.384478,
+      "lng": -72.526206,
+      "levels": 5,
+      "height": null
+    },
+    {
+      "name": "First Congregational Church",
+      "osmId": "way/217242221",
+      "lat": 42.375447,
+      "lng": -72.516392,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Flint Lab",
+      "osmId": "way/147156735",
+      "lat": 42.391701,
+      "lng": -72.529679,
+      "levels": 3,
+      "height": null
+    },
+    {
+      "name": "Football Performance Center",
+      "osmId": "way/307329662",
+      "lat": 42.378135,
+      "lng": -72.535971,
+      "levels": 2,
+      "height": null
+    },
+    {
+      "name": "Former Textbook Annex",
+      "osmId": "way/304036833",
+      "lat": 42.391207,
+      "lng": -72.531997,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Franklin Dining Commons",
+      "osmId": "way/217243328",
+      "lat": 42.389267,
+      "lng": -72.522523,
+      "levels": 2,
+      "height": null
+    },
+    {
+      "name": "French Hall",
+      "osmId": "way/217243550",
+      "lat": 42.389996,
+      "lng": -72.522965,
+      "levels": 2,
+      "height": null
+    },
+    {
+      "name": "Furcolo Hall",
+      "osmId": "relation/2875758",
+      "lat": 42.398273,
+      "lng": -72.526718,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Garcia’s",
+      "osmId": "way/207135974",
+      "lat": 42.380775,
+      "lng": -72.518885,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Garman House",
+      "osmId": "way/217242601",
+      "lat": 42.373531,
+      "lng": -72.518523,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "George N. Parks Minuteman Marching Band Building",
+      "osmId": "way/147156710",
+      "lat": 42.389641,
+      "lng": -72.530618,
+      "levels": 2,
+      "height": null
+    },
+    {
+      "name": "Goessmann Laboratory",
+      "osmId": "way/51648973",
+      "lat": 42.393105,
+      "lng": -72.527444,
+      "levels": 3,
+      "height": null
+    },
+    {
+      "name": "Goodell Hall",
+      "osmId": "way/147156711",
+      "lat": 42.388725,
+      "lng": -72.529219,
+      "levels": 3,
+      "height": null
+    },
+    {
+      "name": "Gordon Hall",
+      "osmId": "way/217243406",
+      "lat": 42.384917,
+      "lng": -72.52225,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Gorman Hall",
+      "osmId": "way/217243049",
+      "lat": 42.387559,
+      "lng": -72.521131,
+      "levels": 5,
+      "height": null
+    },
+    {
+      "name": "Grace Episcopal Church",
+      "osmId": "way/217242512",
+      "lat": 42.375053,
+      "lng": -72.518389,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Grayson Hall",
+      "osmId": "way/217242584",
+      "lat": 42.392253,
+      "lng": -72.51882,
+      "levels": 7,
+      "height": null
+    },
+    {
+      "name": "Greenough Hall",
+      "osmId": "way/217242715",
+      "lat": 42.389925,
+      "lng": -72.519108,
+      "levels": 5,
+      "height": null
+    },
+    {
+      "name": "Grinnell Arena",
+      "osmId": "way/304034782",
+      "lat": 42.38954,
+      "lng": -72.53113,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Gunness",
+      "osmId": "way/149698361",
+      "lat": 42.394512,
+      "lng": -72.529635,
+      "levels": 1,
+      "height": null
+    },
+    {
+      "name": "Hamlin Hall",
+      "osmId": "way/216996568",
+      "lat": 42.395002,
+      "lng": -72.526344,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Hampden",
+      "osmId": "way/184350144",
+      "lat": 42.382899,
+      "lng": -72.529702,
+      "levels": 2,
+      "height": null
+    },
+    {
+      "name": "Hampshire Dining Commons",
+      "osmId": "way/184350299",
+      "lat": 42.383833,
+      "lng": -72.530476,
+      "levels": 2,
+      "height": null
+    },
+    {
+      "name": "Hampshire House",
+      "osmId": "way/147156730",
+      "lat": 42.385212,
+      "lng": -72.528704,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Hasbrouck Laboratory",
+      "osmId": "way/110428293",
+      "lat": 42.391783,
+      "lng": -72.525872,
+      "levels": 3,
+      "height": null
+    },
+    {
+      "name": "Herter Annex",
+      "osmId": "way/668103247",
+      "lat": 42.387865,
+      "lng": -72.527432,
+      "levels": 2,
+      "height": null
+    },
+    {
+      "name": "Herter Hall",
+      "osmId": "way/147156701",
+      "lat": 42.387288,
+      "lng": -72.527214,
+      "levels": 7,
+      "height": null
+    },
+    {
+      "name": "Hillel House",
+      "osmId": "relation/2875757",
+      "lat": 42.383934,
+      "lng": -72.521569,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Hillside - Chancellor's House",
+      "osmId": "way/217243028",
+      "lat": 42.391501,
+      "lng": -72.521138,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Hitchcock House",
+      "osmId": "way/207135967",
+      "lat": 42.374286,
+      "lng": -72.521014,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Holdsworth Hall",
+      "osmId": "way/147156754",
+      "lat": 42.392834,
+      "lng": -72.53086,
+      "levels": 12,
+      "height": null
+    },
+    {
+      "name": "Immanuel Lutheran Church",
+      "osmId": "way/217244547",
+      "lat": 42.399548,
+      "lng": -72.526724,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Inn On Boltwood",
+      "osmId": "way/217242573",
+      "lat": 42.374524,
+      "lng": -72.518379,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Integrated Sciences Building",
+      "osmId": "way/217244017",
+      "lat": 42.392482,
+      "lng": -72.524829,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Integrative Learning Center",
+      "osmId": "way/292876549",
+      "lat": 42.390988,
+      "lng": -72.52591,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "International Programs Office",
+      "osmId": "way/217242996",
+      "lat": 42.386934,
+      "lng": -72.520836,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Iota Gamma Upsilon",
+      "osmId": "way/217243155",
+      "lat": 42.384407,
+      "lng": -72.521586,
+      "levels": 3,
+      "height": null
+    },
+    {
+      "name": "Isenberg School of Management",
+      "osmId": "relation/17798539",
+      "lat": 42.386886,
+      "lng": -72.524929,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "James Hall",
+      "osmId": "way/187132546",
+      "lat": 42.384068,
+      "lng": -72.531095,
+      "levels": 4,
+      "height": null
+    },
+    {
+      "name": "John Adams Hall",
+      "osmId": "way/1391493914",
+      "lat": 42.381989,
+      "lng": -72.529032,
+      "levels": 22,
+      "height": null
+    },
+    {
+      "name": "John and Elizabeth Armstrong Carriage House",
+      "osmId": "way/1458771916",
+      "lat": 42.375899,
+      "lng": -72.514715,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "John Quincy Adams Hall",
+      "osmId": "way/1391493916",
+      "lat": 42.38221,
+      "lng": -72.529068,
+      "levels": 22,
+      "height": null
+    },
+    {
+      "name": "John W. Olver Design Building",
+      "osmId": "way/483220334",
+      "lat": 42.388201,
+      "lng": -72.523527,
+      "levels": 4,
+      "height": 20.7
+    },
+    {
+      "name": "Johnson Hall",
+      "osmId": "way/216996569",
+      "lat": 42.395703,
+      "lng": -72.524706,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Jones Library",
+      "osmId": "way/217243047",
+      "lat": 42.376226,
+      "lng": -72.520858,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Kamins Real Estate",
+      "osmId": "way/217245504",
+      "lat": 42.373672,
+      "lng": -72.531613,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Kappa Kappa Gamma",
+      "osmId": "way/217243903",
+      "lat": 42.38377,
+      "lng": -72.524284,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Kendrick Place",
+      "osmId": "way/448497277",
+      "lat": 42.38101,
+      "lng": -72.518872,
+      "levels": 5,
+      "height": null
+    },
+    {
+      "name": "Kennedy Champions Center",
+      "osmId": "way/678037640",
+      "lat": 42.388355,
+      "lng": -72.532706,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Kennedy Hall",
+      "osmId": "way/1391493915",
+      "lat": 42.384054,
+      "lng": -72.529527,
+      "levels": 22,
+      "height": null
+    },
+    {
+      "name": "Knowles Engineering Bulding",
+      "osmId": "way/107497663",
+      "lat": 42.393338,
+      "lng": -72.529062,
+      "levels": 3,
+      "height": null
+    },
+    {
+      "name": "Knowlton Hall",
+      "osmId": "way/216996570",
+      "lat": 42.393896,
+      "lng": -72.525689,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Landscape and Grounds Building",
+      "osmId": "way/217241376",
+      "lat": 42.374207,
+      "lng": -72.512889,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Leach Hall",
+      "osmId": "way/216996571",
+      "lat": 42.395105,
+      "lng": -72.525579,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Lederle Graduate Research Center",
+      "osmId": "way/122196721",
+      "lat": 42.394344,
+      "lng": -72.527067,
+      "levels": 3,
+      "height": null
+    },
+    {
+      "name": "Lederle Graduate Research Tower",
+      "osmId": "way/122196717",
+      "lat": 42.393839,
+      "lng": -72.527626,
+      "levels": 17,
+      "height": 64
+    },
+    {
+      "name": "LeftClick Amherst",
+      "osmId": "way/217242961",
+      "lat": 42.377751,
+      "lng": -72.520227,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Leland House",
+      "osmId": "way/217242406",
+      "lat": 42.374578,
+      "lng": -72.517484,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Lewis Hall",
+      "osmId": "way/216996572",
+      "lat": 42.395222,
+      "lng": -72.524175,
+      "levels": 4,
+      "height": null
+    },
+    {
+      "name": "LGRC-LGRT Skyway",
+      "osmId": "way/719082384",
+      "lat": 42.39352,
+      "lng": -72.526689,
+      "levels": 2,
+      "height": null
+    },
+    {
+      "name": "LGRT-Goessmann Skyway",
+      "osmId": "way/719082382",
+      "lat": 42.392234,
+      "lng": -72.525085,
+      "levels": 2,
+      "height": null
+    },
+    {
+      "name": "Life Science Laboratories",
+      "osmId": "way/217243843",
+      "lat": 42.392084,
+      "lng": -72.52379,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Linden",
+      "osmId": "way/220564407",
+      "lat": 42.387033,
+      "lng": -72.530827,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Lipton House",
+      "osmId": "way/217242378",
+      "lat": 42.373754,
+      "lng": -72.51772,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "M and M links",
+      "osmId": "way/217242883",
+      "lat": 42.378918,
+      "lng": -72.519962,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "M&T Bank",
+      "osmId": "way/217242712",
+      "lat": 42.379828,
+      "lng": -72.519525,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Machmer Hall",
+      "osmId": "way/40693158",
+      "lat": 42.390519,
+      "lng": -72.528997,
+      "levels": 4,
+      "height": null
+    },
+    {
+      "name": "MacKimmie Hall",
+      "osmId": "way/184350151",
+      "lat": 42.382838,
+      "lng": -72.528768,
+      "levels": 4,
+      "height": null
+    },
+    {
+      "name": "Mahar Auditorium",
+      "osmId": "way/30700447",
+      "lat": 42.386608,
+      "lng": -72.524255,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Mail Boxes 1-108",
+      "osmId": "way/1173550226",
+      "lat": 42.40476,
+      "lng": -72.530896,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Mail Boxes 201-262",
+      "osmId": "way/1173549820",
+      "lat": 42.404535,
+      "lng": -72.534666,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Maple Hall",
+      "osmId": "way/220564409",
+      "lat": 42.387592,
+      "lng": -72.530956,
+      "levels": 5,
+      "height": null
+    },
+    {
+      "name": "Marcus Hall",
+      "osmId": "way/122197832",
+      "lat": 42.393942,
+      "lng": -72.528543,
+      "levels": 3,
+      "height": null
+    },
+    {
+      "name": "Marcus-Marston Skyway",
+      "osmId": "way/719082381",
+      "lat": 42.391692,
+      "lng": -72.524708,
+      "levels": 3,
+      "height": null
+    },
+    {
+      "name": "Marsh House",
+      "osmId": "way/217241654",
+      "lat": 42.37685,
+      "lng": -72.514954,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Marston Hall",
+      "osmId": "way/51649170",
+      "lat": 42.3941,
+      "lng": -72.529458,
+      "levels": 3,
+      "height": null
+    },
+    {
+      "name": "Martin & Richard Jacobson Press & Skybox Complex",
+      "osmId": "way/1391300171",
+      "lat": 42.377272,
+      "lng": -72.536758,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Mary Lyon Hall",
+      "osmId": "way/216996573",
+      "lat": 42.394184,
+      "lng": -72.524322,
+      "levels": 4,
+      "height": null
+    },
+    {
+      "name": "Mather Building",
+      "osmId": "relation/2875749",
+      "lat": 42.394592,
+      "lng": -72.510986,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "McNamara Hall",
+      "osmId": "way/216996574",
+      "lat": 42.39793,
+      "lng": -72.522254,
+      "levels": 8,
+      "height": null
+    },
+    {
+      "name": "Melville Hall",
+      "osmId": "way/187132544",
+      "lat": 42.384646,
+      "lng": -72.530627,
+      "levels": 4,
+      "height": null
+    },
+    {
+      "name": "Memorial Hall",
+      "osmId": "way/147156727",
+      "lat": 42.388436,
+      "lng": -72.527596,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Mercy House",
+      "osmId": "way/217242849",
+      "lat": 42.383075,
+      "lng": -72.520168,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Middlesex House",
+      "osmId": "way/147156717",
+      "lat": 42.385839,
+      "lng": -72.528781,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Montague House",
+      "osmId": "way/217244549",
+      "lat": 42.397762,
+      "lng": -72.52673,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Moore Hall",
+      "osmId": "way/187132540",
+      "lat": 42.382047,
+      "lng": -72.530701,
+      "levels": 3,
+      "height": null
+    },
+    {
+      "name": "Morrill Greenhouses",
+      "osmId": "way/844069509",
+      "lat": 42.389061,
+      "lng": -72.524347,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Morrill I",
+      "osmId": "way/267026965",
+      "lat": 42.391004,
+      "lng": -72.524236,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Morrill II",
+      "osmId": "way/131281207",
+      "lat": 42.389939,
+      "lng": -72.524428,
+      "levels": 4,
+      "height": null
+    },
+    {
+      "name": "Morrill III",
+      "osmId": "way/267026966",
+      "lat": 42.389411,
+      "lng": -72.524314,
+      "levels": 4,
+      "height": null
+    },
+    {
+      "name": "Morrill IV North",
+      "osmId": "way/110428294",
+      "lat": 42.390892,
+      "lng": -72.524768,
+      "levels": 4,
+      "height": null
+    },
+    {
+      "name": "Morrill IV South",
+      "osmId": "way/1353190386",
+      "lat": 42.390531,
+      "lng": -72.524477,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Mullins Center",
+      "osmId": "way/30698363",
+      "lat": 42.389416,
+      "lng": -72.533405,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Mullins Center Community Ice Rink",
+      "osmId": "way/32316713",
+      "lat": 42.390482,
+      "lng": -72.533989,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Munson Hall",
+      "osmId": "way/147156704",
+      "lat": 42.386686,
+      "lng": -72.527853,
+      "levels": 3,
+      "height": null
+    },
+    {
+      "name": "Murray D. Lincoln Campus Center",
+      "osmId": "relation/20697676",
+      "lat": 42.391735,
+      "lng": -72.527014,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Murray D. Lincoln Campus Center",
+      "osmId": "way/30698361",
+      "lat": 42.391777,
+      "lng": -72.527029,
+      "levels": 11,
+      "height": null
+    },
+    {
+      "name": "New Africa House",
+      "osmId": "way/217242975",
+      "lat": 42.38891,
+      "lng": -72.520576,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Newman Catholic Center",
+      "osmId": "way/1290335069",
+      "lat": 42.387293,
+      "lng": -72.522008,
+      "levels": 2,
+      "height": null
+    },
+    {
+      "name": "Noah Webster House",
+      "osmId": "way/217242648",
+      "lat": 42.391544,
+      "lng": -72.519502,
+      "levels": 7,
+      "height": null
+    },
+    {
+      "name": "North A",
+      "osmId": "way/216955124",
+      "lat": 42.397616,
+      "lng": -72.524272,
+      "levels": 5,
+      "height": null
+    },
+    {
+      "name": "North B",
+      "osmId": "way/216955125",
+      "lat": 42.396804,
+      "lng": -72.524359,
+      "levels": 5,
+      "height": null
+    },
+    {
+      "name": "North C",
+      "osmId": "way/216955126",
+      "lat": 42.397613,
+      "lng": -72.524986,
+      "levels": 5,
+      "height": null
+    },
+    {
+      "name": "North D",
+      "osmId": "way/216955127",
+      "lat": 42.396785,
+      "lng": -72.525051,
+      "levels": 5,
+      "height": null
+    },
+    {
+      "name": "North Energy Exchange Center",
+      "osmId": "way/704071839",
+      "lat": 42.394447,
+      "lng": -72.531682,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Oak Hall",
+      "osmId": "way/220564406",
+      "lat": 42.387521,
+      "lng": -72.530302,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Old Amherst Train Station",
+      "osmId": "way/217241202",
+      "lat": 42.375157,
+      "lng": -72.511526,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Old Chapel",
+      "osmId": "way/147156753",
+      "lat": 42.389072,
+      "lng": -72.528108,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "One East Pleasant",
+      "osmId": "way/705564962",
+      "lat": 42.378979,
+      "lng": -72.519379,
+      "levels": 5,
+      "height": null
+    },
+    {
+      "name": "Orchard Hill Observatory",
+      "osmId": "way/495323093",
+      "lat": 42.393963,
+      "lng": -72.521397,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Orchard Hill Pavilion",
+      "osmId": "way/1495880186",
+      "lat": 42.395077,
+      "lng": -72.520553,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Paige Laboratory",
+      "osmId": "way/51649672",
+      "lat": 42.393324,
+      "lng": -72.529806,
+      "levels": 4,
+      "height": null
+    },
+    {
+      "name": "Patterson Hall",
+      "osmId": "way/184350150",
+      "lat": 42.381837,
+      "lng": -72.528482,
+      "levels": 4,
+      "height": null
+    },
+    {
+      "name": "PeoplesBank",
+      "osmId": "way/217243052",
+      "lat": 42.375733,
+      "lng": -72.521511,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Phi Sigma Kappa",
+      "osmId": "way/217243782",
+      "lat": 42.38723,
+      "lng": -72.523444,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Photography Laboratory",
+      "osmId": "way/147156739",
+      "lat": 42.390406,
+      "lng": -72.530319,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Physical Plant",
+      "osmId": "way/147156709",
+      "lat": 42.391287,
+      "lng": -72.532551,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Physical Sciences Building",
+      "osmId": "way/678935094",
+      "lat": 42.393626,
+      "lng": -72.526645,
+      "levels": 3,
+      "height": null
+    },
+    {
+      "name": "Pierpont Hall",
+      "osmId": "way/187132543",
+      "lat": 42.381477,
+      "lng": -72.530821,
+      "levels": 4,
+      "height": null
+    },
+    {
+      "name": "Plimpton Hall",
+      "osmId": "way/217241812",
+      "lat": 42.377466,
+      "lng": -72.51535,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Porter House",
+      "osmId": "way/217242575",
+      "lat": 42.374271,
+      "lng": -72.518822,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Prince Hall",
+      "osmId": "way/32316563",
+      "lat": 42.384048,
+      "lng": -72.52903,
+      "levels": 4,
+      "height": null
+    },
+    {
+      "name": "PSB-Goessmann Skyway",
+      "osmId": "way/719082383",
+      "lat": 42.395125,
+      "lng": -72.529881,
+      "levels": 2,
+      "height": null
+    },
+    {
+      "name": "PVTA Bus Garage",
+      "osmId": "way/149698362",
+      "lat": 42.394266,
+      "lng": -72.533538,
+      "levels": 1,
+      "height": null
+    },
+    {
+      "name": "Randolph W. Bromery Center for the Arts",
+      "osmId": "way/30698359",
+      "lat": 42.388229,
+      "lng": -72.525803,
+      "levels": null,
+      "height": 20.11
+    },
+    {
+      "name": "Recreation Center",
+      "osmId": "way/147156712",
+      "lat": 42.388844,
+      "lng": -72.531674,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Robsham Visitor's Center",
+      "osmId": "way/217244080",
+      "lat": 42.385269,
+      "lng": -72.525505,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "School of Public Health & Health Sciences Hub",
+      "osmId": "way/1482052846",
+      "lat": 42.396059,
+      "lng": -72.526783,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Seelye House",
+      "osmId": "way/48484568",
+      "lat": 42.373697,
+      "lng": -72.520566,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Shade Tree Lab",
+      "osmId": "way/217243736",
+      "lat": 42.38988,
+      "lng": -72.523926,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Skinner Hall",
+      "osmId": "relation/19208020",
+      "lat": 42.391633,
+      "lng": -72.524682,
+      "levels": 3,
+      "height": null
+    },
+    {
+      "name": "South College",
+      "osmId": "way/495323096",
+      "lat": 42.389563,
+      "lng": -72.529392,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "South Football Building",
+      "osmId": "way/145173742",
+      "lat": 42.376206,
+      "lng": -72.536177,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "St Brigid's Church",
+      "osmId": "way/207132876",
+      "lat": 42.377823,
+      "lng": -72.520763,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "St Brigid's Pastoral Center",
+      "osmId": "way/217243054",
+      "lat": 42.377442,
+      "lng": -72.521116,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Steam and Condensate Building",
+      "osmId": "way/147156728",
+      "lat": 42.390346,
+      "lng": -72.531078,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Stockbridge Hall",
+      "osmId": "way/147156749",
+      "lat": 42.39224,
+      "lng": -72.529441,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Student Union",
+      "osmId": "way/30698362",
+      "lat": 42.390894,
+      "lng": -72.5276,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Studio Arts Building",
+      "osmId": "way/217243375",
+      "lat": 42.387699,
+      "lng": -72.52285,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Sustainable Engineering Laboratories",
+      "osmId": "way/1554362478",
+      "lat": 42.392903,
+      "lng": -72.528707,
+      "levels": 3,
+      "height": null
+    },
+    {
+      "name": "Sycamore Hall",
+      "osmId": "way/304034780",
+      "lat": 42.388357,
+      "lng": -72.53047,
+      "levels": 3,
+      "height": null
+    },
+    {
+      "name": "Tan Brook Condominiums",
+      "osmId": "way/217242523",
+      "lat": 42.38196,
+      "lng": -72.518281,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Thatcher Hall",
+      "osmId": "way/216996578",
+      "lat": 42.394406,
+      "lng": -72.523688,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "The Church of Jesus Christ of Latter-day Saints",
+      "osmId": "way/207135965",
+      "lat": 42.378705,
+      "lng": -72.529287,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "The Clark House",
+      "osmId": "way/217242439",
+      "lat": 42.376724,
+      "lng": -72.517582,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "The Evergreens",
+      "osmId": "way/217241884",
+      "lat": 42.376064,
+      "lng": -72.515419,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "The Spoke",
+      "osmId": "way/207135976",
+      "lat": 42.380166,
+      "lng": -72.519137,
+      "levels": 1,
+      "height": null
+    },
+    {
+      "name": "Theta Chi",
+      "osmId": "way/217243680",
+      "lat": 42.386947,
+      "lng": -72.523128,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Thompson Hall",
+      "osmId": "way/147156729",
+      "lat": 42.390052,
+      "lng": -72.529773,
+      "levels": 10,
+      "height": null
+    },
+    {
+      "name": "Thoreau Hall",
+      "osmId": "way/187132541",
+      "lat": 42.384328,
+      "lng": -72.530014,
+      "levels": 4,
+      "height": null
+    },
+    {
+      "name": "Tilson Farm Steam Plant",
+      "osmId": "way/217240430",
+      "lat": 42.397285,
+      "lng": -72.507211,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Tobin Hall",
+      "osmId": "way/147156703",
+      "lat": 42.387507,
+      "lng": -72.529564,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Toddler House",
+      "osmId": "way/213384148",
+      "lat": 42.3812,
+      "lng": -72.534253,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Totman Gym",
+      "osmId": "way/216955133",
+      "lat": 42.396188,
+      "lng": -72.525973,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Transit Facility",
+      "osmId": "way/149698367",
+      "lat": 42.393338,
+      "lng": -72.533426,
+      "levels": 1,
+      "height": null
+    },
+    {
+      "name": "Tread Shed",
+      "osmId": "way/217241665",
+      "lat": 42.373636,
+      "lng": -72.515022,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Triangle Family Dental",
+      "osmId": "way/217242326",
+      "lat": 42.380368,
+      "lng": -72.517252,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Tyler House",
+      "osmId": "way/217242047",
+      "lat": 42.377976,
+      "lng": -72.516192,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "UMass Bubble",
+      "osmId": "way/1457264143",
+      "lat": 42.37712,
+      "lng": -72.538257,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "UMass Parking Services",
+      "osmId": "way/149698358",
+      "lat": 42.392557,
+      "lng": -72.535217,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "UMass Receiving",
+      "osmId": "way/678515205",
+      "lat": 42.390807,
+      "lng": -72.532301,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Unitarian Meetinghouse",
+      "osmId": "way/217242714",
+      "lat": 42.377449,
+      "lng": -72.519428,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "University Health Services",
+      "osmId": "way/217243172",
+      "lat": 42.390459,
+      "lng": -72.5216,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "University Lodge",
+      "osmId": "way/217242736",
+      "lat": 42.382566,
+      "lng": -72.519579,
+      "levels": 2,
+      "height": null
+    },
+    {
+      "name": "University of Massachusetts Police Department",
+      "osmId": "way/217056240",
+      "lat": 42.397933,
+      "lng": -72.514982,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Van Meter Hall",
+      "osmId": "way/217242529",
+      "lat": 42.389861,
+      "lng": -72.518344,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "VFW Post 754",
+      "osmId": "way/217241019",
+      "lat": 42.375598,
+      "lng": -72.510782,
+      "levels": 2,
+      "height": null
+    },
+    {
+      "name": "W.E.B. Du Bois Library",
+      "osmId": "relation/4054634",
+      "lat": 42.389662,
+      "lng": -72.528137,
+      "levels": 28,
+      "height": 87.17
+    },
+    {
+      "name": "Washington Hall",
+      "osmId": "way/1391493913",
+      "lat": 42.381701,
+      "lng": -72.529517,
+      "levels": 22,
+      "height": null
+    },
+    {
+      "name": "West Experiment Station",
+      "osmId": "way/217056244",
+      "lat": 42.393385,
+      "lng": -72.526874,
+      "levels": 2,
+      "height": null
+    },
+    {
+      "name": "West Stadium Stands",
+      "osmId": "way/145173738",
+      "lat": 42.377345,
+      "lng": -72.536703,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Wheeler Hall",
+      "osmId": "way/217243078",
+      "lat": 42.388977,
+      "lng": -72.521411,
+      "levels": 5,
+      "height": null
+    },
+    {
+      "name": "White Barn Studios",
+      "osmId": "way/217241337",
+      "lat": 42.375146,
+      "lng": -72.512751,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Whitmore Administration Building",
+      "osmId": "relation/9408496",
+      "lat": 42.385928,
+      "lng": -72.526694,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Wilder Hall",
+      "osmId": "way/217243792",
+      "lat": 42.390439,
+      "lng": -72.523935,
+      "levels": null,
+      "height": null
+    },
+    {
+      "name": "Worcester Commons",
+      "osmId": "way/217056238",
+      "lat": 42.393227,
+      "lng": -72.525087,
+      "levels": 3,
+      "height": null
+    }
+  ]
+}
