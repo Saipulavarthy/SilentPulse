@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 
 type UiState =
@@ -15,6 +16,7 @@ type UiState =
   | "fire"
   | "medical"
   | "threat"
+  | "unknown"
   | "low-bandwidth";
 
 type ActiveTab = "sos" | "overwatch";
@@ -55,21 +57,31 @@ const LOADING_STATUSES = [
   "Transmitting to AI Dispatcher...",
 ] as const;
 
-const ACTIVE_CRISIS_STATES: UiState[] = ["fire", "medical", "threat"];
+const ACTIVE_CRISIS_STATES: UiState[] = [
+  "fire",
+  "medical",
+  "threat",
+  "unknown",
+];
 const TELEMETRY_INTERVAL_MS = 30_000;
 
 function crisisTypeToUiState(crisisType: string): UiState {
   switch (crisisType) {
     case "ENVIRONMENTAL_HAZARD":
+    case "FIRE_ENVIRONMENTAL":
       return "fire";
     case "MEDICAL_CRISIS":
       return "medical";
     case "ACTIVE_THREAT":
+    case "SECURITY_THREAT":
       return "threat";
     case "UNKNOWN":
+    case "UNKNOWN_CRISIS":
+      return "unknown";
+    case "LOW_BANDWIDTH_SOS":
       return "low-bandwidth";
     default:
-      return "low-bandwidth";
+      return "unknown";
   }
 }
 
@@ -136,7 +148,7 @@ function getGpsCoordinates(timeoutMs = 5000): Promise<GpsCoords> {
 
 function recordAudioBase64(
   stream: MediaStream,
-  durationMs = 3000,
+  durationMs = 6000,
 ): Promise<string> {
   const audioTracks = stream.getAudioTracks();
   if (audioTracks.length === 0) {
@@ -199,11 +211,183 @@ function LiveTelemetryBadge({ tone = "light" }: { tone?: "light" | "dark" }) {
   );
 }
 
+/** Master quick-action map for all 4 AI classifications (aliases → uiState). */
+const QUICK_ACTIONS_BY_CLASSIFICATION = {
+  SECURITY_THREAT: [
+    "Armed Intruder",
+    "Following Me",
+    "Domestic Violence",
+    "I don't know",
+  ],
+  MEDICAL_CRISIS: [
+    "Chest Pain",
+    "Asthma / Breathing",
+    "Severe Bleeding",
+    "I don't know",
+  ],
+  FIRE_ENVIRONMENTAL: [
+    "Trapped / Blocked",
+    "Smoke Inhalation",
+    "Chemical Spill",
+    "I don't know",
+  ],
+  UNKNOWN_CRISIS: [
+    "Need Help IMMEDIATELY!",
+    "Not Immediate / Non-Emergency",
+    "Accidental Trigger",
+    "I don't know",
+  ],
+} as const;
+
+const URGENT_QUICK_ACTION = "Need Help IMMEDIATELY!";
+
+function quickActionsForUiState(uiState: UiState): readonly string[] {
+  switch (uiState) {
+    case "threat":
+      return QUICK_ACTIONS_BY_CLASSIFICATION.SECURITY_THREAT;
+    case "medical":
+      return QUICK_ACTIONS_BY_CLASSIFICATION.MEDICAL_CRISIS;
+    case "fire":
+      return QUICK_ACTIONS_BY_CLASSIFICATION.FIRE_ENVIRONMENTAL;
+    case "unknown":
+      return QUICK_ACTIONS_BY_CLASSIFICATION.UNKNOWN_CRISIS;
+    default:
+      return [];
+  }
+}
+
+function formatContextLabel(context: string): string {
+  if (context === "NO_RESPONSE_RECEIVED") return "No Response";
+  return context;
+}
+
+function CrisisDispatcherStatus({
+  dispatcherStatus,
+  userProvidedContext,
+  tone = "light",
+}: {
+  dispatcherStatus: "reviewing" | "dispatched";
+  userProvidedContext: string | null;
+  tone?: "light" | "dark";
+}) {
+  if (dispatcherStatus === "dispatched") {
+    return (
+      <div className="mt-6 space-y-3">
+        <p
+          className={`text-2xl font-black leading-tight tracking-wide sm:text-4xl ${
+            tone === "dark" ? "text-emerald-400" : "text-white"
+          }`}
+        >
+          HELP IS ON THE WAY. FIRST RESPONDERS DISPATCHED.
+        </p>
+        {userProvidedContext && (
+          <p
+            className={`text-xs tracking-wide ${
+              tone === "dark" ? "text-zinc-500" : "text-white/70"
+            }`}
+          >
+            Context provided: {formatContextLabel(userProvidedContext)}
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-6 flex flex-col items-center gap-3">
+      <div
+        className={`flex items-center justify-center gap-3 ${
+          tone === "dark" ? "text-zinc-400" : "text-white/90"
+        }`}
+      >
+        <span
+          className="h-2.5 w-2.5 shrink-0 animate-pulse rounded-full bg-amber-400 shadow-[0_0_10px_rgba(251,191,36,0.9)]"
+          aria-hidden
+        />
+        <p className="text-sm font-medium leading-snug tracking-wide sm:text-base">
+          Live Telemetry Connected. Dispatcher is reviewing your situation.
+        </p>
+      </div>
+      {userProvidedContext && (
+        <p
+          className={`text-xs tracking-wide ${
+            tone === "dark" ? "text-zinc-500" : "text-white/70"
+          }`}
+        >
+          Context provided: {formatContextLabel(userProvidedContext)}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function QuickActionMenu({
+  actions,
+  countdown,
+  onSelect,
+  tone = "light",
+}: {
+  actions: readonly string[];
+  countdown: number;
+  onSelect: (selection: string) => void;
+  tone?: "light" | "dark";
+}) {
+  return (
+    <div className="mt-6 w-full max-w-lg space-y-4">
+      <p
+        className={`text-center text-lg font-black tracking-wide sm:text-2xl ${
+          tone === "dark" ? "text-white" : "text-white drop-shadow"
+        }`}
+      >
+        Tap to provide details to 911:
+      </p>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {actions.map((action) => {
+          const isUrgent = action === URGENT_QUICK_ACTION;
+          return (
+            <button
+              key={action}
+              type="button"
+              onClick={() => onSelect(action)}
+              className={`min-h-16 rounded-2xl px-4 py-5 text-base font-black tracking-wide transition active:scale-[0.98] sm:text-lg ${
+                isUrgent
+                  ? "border-2 border-red-300 bg-red-600 text-white shadow-[0_0_24px_rgba(220,38,38,0.65)] hover:bg-red-500"
+                  : tone === "dark"
+                    ? "border border-zinc-700 bg-zinc-900 text-zinc-200 hover:border-zinc-500 hover:bg-zinc-800"
+                    : "bg-black/25 text-white ring-1 ring-white/30 hover:bg-black/40"
+              }`}
+            >
+              {action}
+            </button>
+          );
+        })}
+      </div>
+      <p
+        className={`text-center font-mono text-xs tracking-wide ${
+          tone === "dark" ? "text-zinc-500" : "text-white/70"
+        }`}
+      >
+        Auto-sending in {countdown}s...
+      </p>
+    </div>
+  );
+}
+
 function SosPageContent() {
   const [uiState, setUiState] = useState<UiState>("idle");
   const [activeTab, setActiveTab] = useState<ActiveTab>("sos");
-  const [isMonitoring, setIsMonitoring] = useState(false);
+  const [isSafeWalkArmed, setIsSafeWalkArmed] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [userProvidedContext, setUserProvidedContext] = useState<string | null>(
+    null,
+  );
+  const [quickActionCountdown, setQuickActionCountdown] = useState(10);
+  const [dispatcherStatus, setDispatcherStatus] = useState<
+    "reviewing" | "dispatched"
+  >("reviewing");
+  const [isCountingDown, setIsCountingDown] = useState(false);
+  const [countdown, setCountdown] = useState(5);
   const [loadingStatusIndex, setLoadingStatusIndex] = useState(0);
   const [liveGps, setLiveGps] = useState<{ lat: number; lng: number } | null>(
     null,
@@ -211,16 +395,26 @@ function SosPageContent() {
   const searchParams = useSearchParams();
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const autoTriggeredRef = useRef(false);
+  const hasAutoTriggered = useRef(false);
   const sosInFlightRef = useRef(false);
   const watchIdRef = useRef<number | null>(null);
   const telemetryIntervalRef = useRef<number | null>(null);
+  const countdownIntervalRef = useRef<number | null>(null);
+  const quickActionIntervalRef = useRef<number | null>(null);
   const sessionIdRef = useRef<string | null>(null);
+  const userProvidedContextRef = useRef<string | null>(null);
 
   const clearTelemetryInterval = useCallback(() => {
     if (telemetryIntervalRef.current !== null) {
       window.clearInterval(telemetryIntervalRef.current);
       telemetryIntervalRef.current = null;
+    }
+  }, []);
+
+  const clearCountdownInterval = useCallback(() => {
+    if (countdownIntervalRef.current !== null) {
+      window.clearInterval(countdownIntervalRef.current);
+      countdownIntervalRef.current = null;
     }
   }, []);
 
@@ -270,7 +464,7 @@ function SosPageContent() {
         const image = canvas.toDataURL("image/jpeg", 0.5);
 
         const [audio, gps] = await Promise.all([
-          recordAudioBase64(stream, 3000),
+          recordAudioBase64(stream, 6000),
           gpsPromise,
         ]);
 
@@ -310,9 +504,22 @@ function SosPageContent() {
           throw new Error(`Triage API failed with status ${response.status}`);
         }
 
-        const data = (await response.json()) as { crisisType?: string };
+        const data = (await response.json()) as {
+          crisisType?: string;
+          sessionId?: string;
+          dispatcherStatus?: "reviewing" | "dispatched";
+        };
         if (!data.crisisType) {
           throw new Error("Triage API returned no crisisType");
+        }
+
+        const resolvedSessionId = data.sessionId || currentSessionId;
+        setActiveSessionId(resolvedSessionId);
+        sessionIdRef.current = resolvedSessionId;
+        setSessionId(resolvedSessionId);
+
+        if (data.dispatcherStatus === "dispatched") {
+          setDispatcherStatus("dispatched");
         }
 
         const nextState = crisisTypeToUiState(data.crisisType);
@@ -349,26 +556,154 @@ function SosPageContent() {
 
     sessionIdRef.current = newSessionId;
     setSessionId(newSessionId);
+    setActiveSessionId(newSessionId);
+    userProvidedContextRef.current = null;
+    setUserProvidedContext(null);
+    setQuickActionCountdown(10);
+    setDispatcherStatus("reviewing");
     setActiveTab("sos");
     setUiState("loading");
 
     await captureAndSendTelemetry(newSessionId, { updateUi: true });
   }, [captureAndSendTelemetry]);
 
-  const resetSession = useCallback(() => {
-    clearTelemetryInterval();
-    sessionIdRef.current = null;
-    setSessionId(null);
+  const handleQuickAction = useCallback(
+    async (selection: string) => {
+      if (userProvidedContextRef.current) return;
+
+      userProvidedContextRef.current = selection;
+      setUserProvidedContext(selection);
+
+      if (quickActionIntervalRef.current !== null) {
+        window.clearInterval(quickActionIntervalRef.current);
+        quickActionIntervalRef.current = null;
+      }
+
+      const sessionForContext =
+        activeSessionId ?? sessionIdRef.current ?? sessionId;
+
+      try {
+        await fetch("/api/triage/context", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sessionId: sessionForContext,
+            userContext: selection,
+          }),
+        });
+      } catch (error) {
+        console.error("Quick-action context send failed:", error);
+      }
+    },
+    [activeSessionId, sessionId],
+  );
+
+  const cancelSosCountdown = useCallback(() => {
+    clearCountdownInterval();
+    setIsCountingDown(false);
+    setCountdown(5);
     setActiveTab("sos");
     setUiState("idle");
-  }, [clearTelemetryInterval]);
+  }, [clearCountdownInterval]);
+
+  const startSosCountdown = useCallback(() => {
+    if (sosInFlightRef.current || countdownIntervalRef.current !== null) return;
+
+    setActiveTab("sos");
+    setUiState("idle");
+    setCountdown(5);
+    setIsCountingDown(true);
+
+    countdownIntervalRef.current = window.setInterval(() => {
+      setCountdown((prev) => {
+        if (prev <= 1) {
+          clearCountdownInterval();
+          setIsCountingDown(false);
+          setCountdown(5);
+          // Fire telemetry after the grace period completes
+          void triggerSOS();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  }, [clearCountdownInterval, triggerSOS]);
+
+  const resetSession = useCallback(() => {
+    clearCountdownInterval();
+    clearTelemetryInterval();
+    if (quickActionIntervalRef.current !== null) {
+      window.clearInterval(quickActionIntervalRef.current);
+      quickActionIntervalRef.current = null;
+    }
+    sessionIdRef.current = null;
+    userProvidedContextRef.current = null;
+    setSessionId(null);
+    setActiveSessionId(null);
+    setUserProvidedContext(null);
+    setQuickActionCountdown(10);
+    setDispatcherStatus("reviewing");
+    setIsCountingDown(false);
+    setCountdown(5);
+    setActiveTab("sos");
+    setUiState("idle");
+  }, [clearCountdownInterval, clearTelemetryInterval]);
+
+  // Apple Lock Screen shortcut: /sos?auto=true still gets a 5s cancel window
+  useEffect(() => {
+    if (searchParams.get("auto") === "true" && !hasAutoTriggered.current) {
+      hasAutoTriggered.current = true;
+      startSosCountdown();
+    }
+  }, [searchParams, startSosCountdown]);
 
   useEffect(() => {
-    if (searchParams.get("auto") === "true" && !autoTriggeredRef.current) {
-      autoTriggeredRef.current = true;
-      void triggerSOS();
+    return () => {
+      clearCountdownInterval();
+      if (quickActionIntervalRef.current !== null) {
+        window.clearInterval(quickActionIntervalRef.current);
+        quickActionIntervalRef.current = null;
+      }
+    };
+  }, [clearCountdownInterval]);
+
+  // 10s quick-action menu timeout while crisis is active and no context yet
+  useEffect(() => {
+    const menuVisible =
+      ACTIVE_CRISIS_STATES.includes(uiState) && userProvidedContext === null;
+
+    if (quickActionIntervalRef.current !== null) {
+      window.clearInterval(quickActionIntervalRef.current);
+      quickActionIntervalRef.current = null;
     }
-  }, [searchParams, triggerSOS]);
+
+    if (!menuVisible) {
+      return;
+    }
+
+    setQuickActionCountdown(10);
+
+    quickActionIntervalRef.current = window.setInterval(() => {
+      setQuickActionCountdown((prev) => {
+        if (prev <= 1) {
+          if (quickActionIntervalRef.current !== null) {
+            window.clearInterval(quickActionIntervalRef.current);
+            quickActionIntervalRef.current = null;
+          }
+          void handleQuickAction("NO_RESPONSE_RECEIVED");
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => {
+      if (quickActionIntervalRef.current !== null) {
+        window.clearInterval(quickActionIntervalRef.current);
+        quickActionIntervalRef.current = null;
+      }
+    };
+  }, [uiState, userProvidedContext, handleQuickAction]);
 
   // Rotate high-tech status lines while capturing / transmitting
   useEffect(() => {
@@ -409,7 +744,7 @@ function SosPageContent() {
 
   // Live GPS readout while Safe Walk / Overwatch is armed
   useEffect(() => {
-    if (!isMonitoring) {
+    if (!isSafeWalkArmed) {
       if (watchIdRef.current !== null && navigator.geolocation) {
         navigator.geolocation.clearWatch(watchIdRef.current);
         watchIdRef.current = null;
@@ -441,16 +776,24 @@ function SosPageContent() {
         watchIdRef.current = null;
       }
     };
-  }, [isMonitoring]);
+  }, [isSafeWalkArmed]);
 
   function ensureSessionForSim() {
-    if (sessionIdRef.current) return;
+    userProvidedContextRef.current = null;
+    setUserProvidedContext(null);
+    setQuickActionCountdown(10);
+
+    if (sessionIdRef.current) {
+      setActiveSessionId(sessionIdRef.current);
+      return;
+    }
     const id =
       typeof crypto !== "undefined" && "randomUUID" in crypto
         ? crypto.randomUUID()
         : Date.now().toString();
     sessionIdRef.current = id;
     setSessionId(id);
+    setActiveSessionId(id);
   }
 
   return (
@@ -467,15 +810,61 @@ function SosPageContent() {
         className="pointer-events-none absolute h-0 w-0 opacity-0"
       />
 
+      {/* ICE profile settings — idle only so it never distracts during a crisis */}
+      {uiState === "idle" && !isCountingDown && (
+        <Link
+          href="/?edit=true"
+          className="absolute top-6 right-6 z-40 rounded-full p-2 text-gray-400 transition hover:bg-zinc-800 hover:text-white"
+          aria-label="Edit ICE medical profile"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.75"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="h-6 w-6"
+            aria-hidden
+          >
+            <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" />
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
+          </svg>
+        </Link>
+      )}
+
       {/* Main content — leave room for sim row + bottom tabs */}
       <div className="h-[calc(100%-7.5rem)] w-full overflow-hidden">
         {activeTab === "sos" && (
           <>
-            {uiState === "idle" && (
+            {uiState === "idle" && isCountingDown && (
+              <div className="flex h-full w-full flex-col items-center justify-center gap-10 bg-red-950 px-6 text-center">
+                <p className="text-xs font-semibold uppercase tracking-[0.35em] text-red-400">
+                  SOS arms in
+                </p>
+                <p className="text-[8rem] font-black leading-none tracking-tighter text-white tabular-nums sm:text-[10rem]">
+                  {countdown}
+                </p>
+                <p className="max-w-xs text-sm text-red-200/80">
+                  Telemetry will start automatically. Cancel if this was a false
+                  alarm.
+                </p>
+                <button
+                  type="button"
+                  onClick={cancelSosCountdown}
+                  className="rounded-2xl border-2 border-white bg-white px-10 py-4 text-lg font-black tracking-wide text-red-700 transition hover:bg-red-100 active:scale-[0.98]"
+                >
+                  CANCEL SOS
+                </button>
+              </div>
+            )}
+
+            {uiState === "idle" && !isCountingDown && (
               <div className="flex h-full w-full items-center justify-center">
                 <button
                   type="button"
-                  onClick={() => void triggerSOS()}
+                  onClick={startSosCountdown}
                   className="flex h-[65vmin] w-[65vmin] max-h-[400px] max-w-[400px] items-center justify-center rounded-full bg-red-600 text-4xl font-black tracking-widest text-white shadow-[0_0_60px_rgba(220,38,38,0.55)] animate-pulse transition active:scale-95 sm:text-6xl"
                   aria-label="Send SOS help signal"
                 >
@@ -522,33 +911,96 @@ function SosPageContent() {
             )}
 
             {uiState === "fire" && (
-              <div className="relative flex h-full w-full items-center justify-center bg-orange-600 px-8 text-center">
+              <div className="relative flex h-full w-full flex-col items-center justify-center overflow-y-auto bg-orange-600 px-6 py-8 text-center">
                 <LiveTelemetryBadge />
                 <p className="text-2xl font-bold leading-tight tracking-wide text-white sm:text-4xl">
                   ENVIRONMENTAL HAZARD DETECTED. PROCEED TO EXITS.
                 </p>
+                {userProvidedContext === null ? (
+                  <QuickActionMenu
+                    actions={quickActionsForUiState("fire")}
+                    countdown={quickActionCountdown}
+                    onSelect={(selection) => void handleQuickAction(selection)}
+                  />
+                ) : (
+                  <CrisisDispatcherStatus
+                    dispatcherStatus={dispatcherStatus}
+                    userProvidedContext={userProvidedContext}
+                  />
+                )}
               </div>
             )}
 
             {uiState === "medical" && (
-              <div className="relative flex h-full w-full flex-col items-center justify-center gap-10 bg-blue-600 px-8 text-center">
+              <div className="relative flex h-full w-full flex-col items-center justify-center gap-4 overflow-y-auto bg-blue-600 px-6 py-8 text-center">
                 <LiveTelemetryBadge />
-                <div
-                  className="h-48 w-48 animate-pulse rounded-full bg-blue-300/40 ring-8 ring-white/30 sm:h-64 sm:w-64"
-                  aria-hidden
-                />
+                {userProvidedContext !== null && (
+                  <div
+                    className="h-32 w-32 animate-pulse rounded-full bg-blue-300/40 ring-8 ring-white/30 sm:h-40 sm:w-40"
+                    aria-hidden
+                  />
+                )}
                 <p className="text-xl font-bold leading-tight tracking-wide text-white sm:text-3xl">
-                  MEDICAL CRISIS. HELP IS ON THE WAY. BREATHE WITH THE CIRCLE.
+                  MEDICAL CRISIS. BREATHE WITH THE CIRCLE.
                 </p>
+                {userProvidedContext === null ? (
+                  <QuickActionMenu
+                    actions={quickActionsForUiState("medical")}
+                    countdown={quickActionCountdown}
+                    onSelect={(selection) => void handleQuickAction(selection)}
+                  />
+                ) : (
+                  <CrisisDispatcherStatus
+                    dispatcherStatus={dispatcherStatus}
+                    userProvidedContext={userProvidedContext}
+                  />
+                )}
               </div>
             )}
 
             {uiState === "threat" && (
-              <div className="relative flex h-full w-full items-center justify-center bg-black px-8 text-center">
+              <div className="relative flex h-full w-full flex-col items-center justify-center overflow-y-auto bg-black px-6 py-8 text-center">
                 <LiveTelemetryBadge tone="dark" />
                 <p className="text-sm font-medium tracking-wide text-zinc-500 sm:text-base">
-                  THREAT DETECTED. SCREEN DARKENED FOR SAFETY. SOS SENT.
+                  THREAT DETECTED. SCREEN DARKENED FOR SAFETY.
                 </p>
+                {userProvidedContext === null ? (
+                  <QuickActionMenu
+                    actions={quickActionsForUiState("threat")}
+                    countdown={quickActionCountdown}
+                    onSelect={(selection) => void handleQuickAction(selection)}
+                    tone="dark"
+                  />
+                ) : (
+                  <CrisisDispatcherStatus
+                    dispatcherStatus={dispatcherStatus}
+                    userProvidedContext={userProvidedContext}
+                    tone="dark"
+                  />
+                )}
+              </div>
+            )}
+
+            {uiState === "unknown" && (
+              <div className="relative flex h-full w-full flex-col items-center justify-center overflow-y-auto bg-zinc-900 px-6 py-8 text-center">
+                <LiveTelemetryBadge tone="dark" />
+                <p className="text-2xl font-bold leading-tight tracking-wide text-white sm:text-4xl">
+                  CRISIS DETECTED. CLASSIFICATION UNCLEAR.
+                </p>
+                {userProvidedContext === null ? (
+                  <QuickActionMenu
+                    actions={quickActionsForUiState("unknown")}
+                    countdown={quickActionCountdown}
+                    onSelect={(selection) => void handleQuickAction(selection)}
+                    tone="dark"
+                  />
+                ) : (
+                  <CrisisDispatcherStatus
+                    dispatcherStatus={dispatcherStatus}
+                    userProvidedContext={userProvidedContext}
+                    tone="dark"
+                  />
+                )}
               </div>
             )}
 
@@ -577,25 +1029,75 @@ function SosPageContent() {
               </p>
             </div>
 
-            <div className="relative flex flex-1 items-center justify-center py-6">
-              {isMonitoring ? (
-                <div className="relative flex h-56 w-56 items-center justify-center">
-                  <div className="absolute inset-0 animate-ping rounded-full border border-emerald-500/40" />
-                  <div className="absolute inset-4 animate-pulse rounded-full border border-emerald-400/50" />
-                  <div className="absolute inset-10 animate-pulse rounded-full bg-emerald-500/20" />
-                  <div className="relative z-10 h-4 w-4 rounded-full bg-emerald-400 shadow-[0_0_24px_rgba(52,211,153,0.9)]" />
-                </div>
-              ) : (
-                <div className="flex h-56 w-56 items-center justify-center rounded-full border border-dashed border-zinc-700">
-                  <p className="px-6 text-center text-sm text-zinc-600">
+            <div className="relative flex flex-1 flex-col items-center justify-center gap-4 py-6">
+              {!isSafeWalkArmed ? (
+                <div className="flex h-64 w-64 flex-col items-center justify-center rounded-full border border-dashed border-zinc-700 px-6 text-center">
+                  <p className="text-sm text-zinc-600">
                     Radar idle. Arm Safe Walk to begin monitoring.
                   </p>
+                  <button
+                    type="button"
+                    onClick={() => setIsSafeWalkArmed(true)}
+                    className="mt-4 rounded-full bg-emerald-600 px-6 py-2 font-bold text-white transition-all hover:bg-emerald-500"
+                  >
+                    Arm Safe Walk
+                  </button>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center">
+                  <div className="relative flex h-56 w-56 items-center justify-center overflow-hidden rounded-full border border-emerald-500/50 bg-zinc-950 shadow-[0_0_40px_rgba(16,185,129,0.25)]">
+                    {/* Sonar ping ring */}
+                    <div
+                      className="absolute inset-0 animate-ping rounded-full border border-emerald-500/40"
+                      aria-hidden
+                    />
+                    {/* Concentric range rings */}
+                    <div
+                      className="absolute inset-3 rounded-full border border-emerald-500/20"
+                      aria-hidden
+                    />
+                    <div
+                      className="absolute inset-8 rounded-full border border-emerald-500/30"
+                      aria-hidden
+                    />
+                    <div
+                      className="absolute inset-14 rounded-full border border-emerald-400/40"
+                      aria-hidden
+                    />
+                    {/* Sweeping radar beam */}
+                    <div
+                      className="absolute inset-0 animate-spin rounded-full opacity-70"
+                      style={{
+                        background:
+                          "conic-gradient(from 0deg, transparent 0deg, rgba(16,185,129,0.55) 50deg, transparent 90deg)",
+                      }}
+                      aria-hidden
+                    />
+                    {/* Center crosshair + status */}
+                    <div className="relative z-10 flex max-w-[9rem] flex-col items-center gap-2 px-3 text-center">
+                      <span className="h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-[0_0_16px_rgba(52,211,153,1)]" />
+                      <p className="text-[11px] font-semibold leading-snug text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.8)]">
+                        Buffer Active: Overwriting every 30s
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsSafeWalkArmed(false);
+                      setLiveGps(null);
+                    }}
+                    className="mt-4 text-gray-400 underline transition-all hover:text-white"
+                  >
+                    Disarm
+                  </button>
                 </div>
               )}
             </div>
 
             <div className="w-full max-w-md space-y-4">
-              {isMonitoring && (
+              {isSafeWalkArmed && (
                 <div className="space-y-3 rounded-2xl border border-emerald-500/20 bg-zinc-900/80 p-4">
                   <p className="text-center text-sm font-medium text-emerald-400">
                     Sensors Armed. Audio and location are being locally
@@ -620,27 +1122,6 @@ function SosPageContent() {
                     </div>
                   </div>
                 </div>
-              )}
-
-              {!isMonitoring ? (
-                <button
-                  type="button"
-                  onClick={() => setIsMonitoring(true)}
-                  className="w-full rounded-2xl bg-emerald-600 px-4 py-4 text-lg font-bold tracking-wide text-white transition hover:bg-emerald-500 active:scale-[0.98]"
-                >
-                  Arm Safe Walk
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsMonitoring(false);
-                    setLiveGps(null);
-                  }}
-                  className="w-full rounded-2xl bg-red-600 px-4 py-4 text-lg font-bold tracking-wide text-white transition hover:bg-red-500 active:scale-[0.98]"
-                >
-                  Disarm
-                </button>
               )}
             </div>
           </div>
