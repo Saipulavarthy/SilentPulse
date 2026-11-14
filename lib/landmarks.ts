@@ -125,4 +125,11 @@ export function nameForFootprint(
   return near ? pick(near.landmark) : null;
 }
 
+/** The named building whose OSM outline contains a point (smallest, if outlines nest). */
+export function landmarkAt(lng: number, lat: number): Landmark | undefined {
+  return INDEX.filter(
+    ({ bbox, landmark }) => lng >= bbox[0] && lng <= bbox[2] && lat >= bbox[1] && lat <= bbox[3] && inPolygons([lng, lat], landmark.polygons),
+  ).sort((a, b) => a.areaDeg - b.areaDeg)[0]?.landmark;
+}
+
 const pick = (l: Landmark): BuildingName => ({ name: l.name, levels: l.levels, source: l.nameSource });

@@ -1,20 +1,22 @@
 import type { ReactNode } from 'react';
-import type { Incident } from '@/types/incident';
+import type { Incident, Trend } from '@/types/incident';
+import type { DashIncident } from './normalize';
+import { ResponsePlanSection, type CopyState } from './ResponsePlanSection';
 import {
   STATUS_LONG,
   elapsed,
   estimateFloorRange,
   incidentNumber,
+  locationLabel,
   tierStyle,
   typeLabel,
 } from './severity';
-import { ResponsePlanSection, type CopyState } from './ResponsePlanSection';
 import { SeveritySquare } from './SeveritySquare';
 import { FOCUS_RING, LABEL, MONO } from './ui';
 import type { PlanEntry } from './useResponsePlans';
 
 type Props = {
-  incident: Incident | null;
+  incident: DashIncident | null;
   now: number | null;
   onAcknowledge: () => void;
   onResolve: () => void;
@@ -24,6 +26,14 @@ type Props = {
   onToggleTick: (action: string) => void;
   onCopyBrief: () => void;
   copyState: CopyState;
+};
+
+const TREND_LABEL: Record<Trend, string> = { new: 'New', worsening: '▲ Worsening', stable: '▬ Stable', improving: '▼ Improving' };
+
+const pad = (n: number) => String(n).padStart(2, '0');
+const clock = (iso: string) => {
+  const d = new Date(iso);
+  return Number.isFinite(d.getTime()) ? `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}` : '—';
 };
 
 export function IncidentDetail({
@@ -47,20 +57,29 @@ export function IncidentDetail({
   }
 
   const t = tierStyle(incident.severityScore);
-  const { building, iceProfile: ice } = incident;
+  const { building, iceProfile: ice, gps } = incident;
   const canAck = incident.status === 'ACTIVE';
   const canResolve = incident.status !== 'RESOLVED';
   const floorRange = estimateFloorRange(incident);
+  const victim = Array.isArray(incident.victimInstructions)
+    ? incident.victimInstructions
+    : incident.victimInstructions
+      ? [incident.victimInstructions]
+      : [];
 
   return (
     <section className="flex min-h-0 flex-col border-l border-neutral-800" aria-label="Incident detail">
       <header className="flex shrink-0 items-center gap-3 border-b border-neutral-800 px-4 py-3">
         <SeveritySquare score={incident.severityScore} size="lg" />
         <div className="min-w-0 flex-1">
-          <div className={`flex items-center gap-2 ${MONO} text-[12px] text-neutral-500`}>
+          <div className={`flex flex-wrap items-center gap-x-2 ${MONO} text-[12px] text-neutral-500`}>
             <span className="text-neutral-200">{incidentNumber(incident._id)}</span>
             <span>·</span>
-            <span>{t.label.toUpperCase()} {incident.severityScore}/10</span>
+            <span>
+              {t.label.toUpperCase()} {incident.severityScore}/10
+            </span>
+            {incident.trend && <span className="text-neutral-300">{TREND_LABEL[incident.trend]}</span>}
+            {incident.simulated && <Tag>Simulated</Tag>}
           </div>
           <h2 className="truncate text-[15px] font-semibold text-neutral-50">{typeLabel(incident)}</h2>
         </div>
@@ -71,6 +90,16 @@ export function IncidentDetail({
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
+        {incident.escalated && (
+          <div className="border-b border-neutral-800 bg-red-950/40 px-4 py-3" role="alert">
+            <div className="text-[13px] font-semibold tracking-[0.08em] text-red-300">SIGNAL LOST</div>
+            <p className="text-neutral-100">{incident.escalationReason ?? 'Live session stopped sending updates.'}</p>
+            {incident.lastSeenAt && (
+              <p className={`${MONO} text-[11px] text-neutral-400`}>Last seen {clock(incident.lastSeenAt)}</p>
+            )}
+          </div>
+        )}
+
         <Section title="Recommended response">
           <p className="text-neutral-100">{t.response}</p>
         </Section>
@@ -86,15 +115,18 @@ export function IncidentDetail({
           copyState={copyState}
         />
 
-        {(incident.crisisType === 'ACTIVE_THREAT' || incident.lowBandwidth) && (
+        {(incident.crisisType === 'ACTIVE_THREAT' || incident.lowBandwidth || incident.classificationFailed || incident.dataIssues.length > 0) && (
           <div className="space-y-2 border-b border-neutral-800 px-4 py-3">
-            {incident.crisisType === 'ACTIVE_THREAT' && (
-              <Notice>Caller device in stealth mode. Do not call back.</Notice>
-            )}
+            {incident.crisisType === 'ACTIVE_THREAT' && <Notice>Caller device in stealth mode. Do not call back.</Notice>}
+            {incident.classificationFailed && <Notice>AI classification failed. Treat as unverified.</Notice>}
             {incident.lowBandwidth && (
               <Notice>
-                Low-bandwidth SOS. No image or audio received; classification unavailable. GPS and
-                medical profile only.
+                Low-bandwidth SOS. No image or audio received; classification unavailable. GPS and medical profile only.
+              </Notice>
+            )}
+            {incident.dataIssues.length > 0 && (
+              <Notice label="Data">
+                {incident.dataIssues.join('. ')}.
               </Notice>
             )}
           </div>
@@ -102,56 +134,112 @@ export function IncidentDetail({
 
         <Section title="AI assessment">
           <Source label="Perception" source="Gemini">
-            {incident.sceneSummary ?? <span className="text-neutral-600">No perception data.</span>}
+            {incident.sceneSummary ? (
+              <p className="text-neutral-200">{incident.sceneSummary}</p>
+            ) : (
+              <p className="text-neutral-600">No perception summary</p>
+            )}
+            {incident.cues && incident.cues.length > 0 && (
+              <ul className="mt-1 flex list-none flex-wrap gap-1 p-0">
+                {incident.cues.map((c) => (
+                  <li key={c} className="rounded-[2px] bg-neutral-800 px-1.5 py-0.5 text-[12px] text-neutral-200">
+                    {c}
+                  </li>
+                ))}
+              </ul>
+            )}
           </Source>
           <Source label="Triage" source="Grok">
-            {incident.dispatcherBrief}
+            <p className="text-neutral-200">{incident.dispatcherBrief}</p>
+            {incident.reasons && incident.reasons.length > 0 && (
+              <ul className="mt-1 list-none space-y-0.5 p-0">
+                {incident.reasons.map((r) => (
+                  <li key={r} className="border-l-2 border-neutral-700 pl-2 text-[12px] text-neutral-300">
+                    {r}
+                  </li>
+                ))}
+              </ul>
+            )}
           </Source>
         </Section>
 
+        {victim.length > 0 && (
+          <Section title="Shown to caller">
+            <ul className="list-none space-y-0.5 p-0">
+              {victim.map((v) => (
+                <li key={v} className="text-neutral-300">
+                  {v}
+                </li>
+              ))}
+            </ul>
+          </Section>
+        )}
+
         <Section title="Location">
-          <Grid>
-            <Row label="Building">{building?.name ?? 'Unknown location'}</Row>
-            {building && <Row label="Type">{building.type}</Row>}
-            {building && <Row label="Floors"><span className={MONO}>{building.floors}</span></Row>}
-            {building?.notes && <Row label="Notes">{building.notes}</Row>}
-            {floorRange && (
-              <Row label="Est. floor">
+          {gps ? (
+            <Grid>
+              <Row label="Building">{locationLabel(incident)}</Row>
+              {building?.type && <Row label="Type">{building.type}</Row>}
+              {building && building.floors > 0 && (
+                <Row label="Floors">
+                  <span className={MONO}>{building.floors}</span>
+                </Row>
+              )}
+              {building?.notes && <Row label="Notes">{building.notes}</Row>}
+              {floorRange && (
+                <Row label="Est. floor">
+                  <span className={MONO}>{floorRange[0] === floorRange[1] ? floorRange[0] : `${floorRange[0]}–${floorRange[1]}`}</span>{' '}
+                  <span className="text-neutral-500">(low confidence)</span>
+                </Row>
+              )}
+              <Row label="Coords">
                 <span className={MONO}>
-                  {floorRange[0] === floorRange[1] ? floorRange[0] : `${floorRange[0]}–${floorRange[1]}`}
-                </span>{' '}
-                <span className="text-neutral-500">(low confidence)</span>
+                  {gps.lat.toFixed(5)}, {gps.lng.toFixed(5)}
+                </span>
               </Row>
-            )}
-            <Row label="Coords">
-              <span className={MONO}>
-                {incident.gps.lat.toFixed(5)}, {incident.gps.lng.toFixed(5)}
-              </span>
-            </Row>
-            {incident.gps.accuracy !== undefined && (
-              <Row label="GPS accuracy">
-                <span className={MONO}>±{Math.round(incident.gps.accuracy)} m</span>
-              </Row>
-            )}
-          </Grid>
+              {gps.accuracy !== undefined && (
+                <Row label="GPS accuracy">
+                  <span className={MONO}>±{Math.round(gps.accuracy)} m</span>
+                </Row>
+              )}
+            </Grid>
+          ) : (
+            <>
+              <p className="text-neutral-300">No GPS received</p>
+              {building && (
+                <Grid>
+                  <Row label="Building">{building.name}</Row>
+                  {building.notes && <Row label="Notes">{building.notes}</Row>}
+                </Grid>
+              )}
+            </>
+          )}
         </Section>
 
+        {incident.timeline && incident.timeline.length > 0 && (
+          <Section title="Updates">
+            <div className={`mb-1.5 ${MONO} text-[11px] text-neutral-500`}>
+              {incident.updateCount ?? incident.timeline.length} updates
+              {incident.lastSeenAt ? ` · last seen ${clock(incident.lastSeenAt)}` : ''}
+            </div>
+            <ol className="list-none space-y-1 p-0">
+              {[...incident.timeline].reverse().map((u, i) => (
+                <li key={`${u.ts}-${i}`} className="grid grid-cols-[58px_22px_minmax(0,1fr)] items-baseline gap-x-2 text-[12px]">
+                  <span className={`${MONO} text-neutral-500`}>{clock(u.ts)}</span>
+                  <SeveritySquare score={u.severityScore} />
+                  <span className="min-w-0 text-neutral-300">
+                    <span className="text-neutral-400">{u.lowBandwidth ? 'Low-bandwidth' : typeLabel({ ...incident, crisisType: u.crisisType, lowBandwidth: false })}</span>
+                    {u.sceneSummary ? ` · ${u.sceneSummary}` : ''}
+                    {u.classificationFailed ? ' · classification failed' : ''}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          </Section>
+        )}
+
         <Section title="Caller medical profile (ICE)">
-          <Grid>
-            <Row label="Name">
-              {ice.name}
-              {ice.age !== undefined && (
-                <span className="ml-2 text-neutral-500">
-                  age <span className={MONO}>{ice.age}</span>
-                </span>
-              )}
-            </Row>
-            <Row label="Conditions"><List items={ice.conditions} /></Row>
-            <Row label="Allergies"><List items={ice.allergies} /></Row>
-            <Row label="Medications"><List items={ice.medications} /></Row>
-            <Row label="Contact">{ice.emergencyContact.name}</Row>
-            <Row label="Phone"><span className={MONO}>{ice.emergencyContact.phone}</span></Row>
-          </Grid>
+          {ice ? <IceRows ice={ice} /> : <p className="text-neutral-500">No medical profile on file</p>}
         </Section>
       </div>
 
@@ -167,6 +255,43 @@ export function IncidentDetail({
   );
 }
 
+/** Only rows with a value; every field of the profile is optional. */
+function IceRows({ ice }: { ice: NonNullable<Incident['iceProfile']> }) {
+  const contact = ice.emergencyContact;
+  const rows: [string, ReactNode][] = [];
+  if (ice.name || ice.age !== undefined)
+    rows.push([
+      'Name',
+      <>
+        {ice.name ?? 'Unnamed'}
+        {ice.age !== undefined && (
+          <span className="ml-2 text-neutral-500">
+            age <span className={MONO}>{ice.age}</span>
+          </span>
+        )}
+      </>,
+    ]);
+  if (ice.bloodType) rows.push(['Blood type', <span key="b" className={MONO}>{ice.bloodType}</span>]);
+  if (ice.conditions.length) rows.push(['Conditions', ice.conditions.join(', ')]);
+  if (ice.allergies.length) rows.push(['Allergies', ice.allergies.join(', ')]);
+  if (ice.medications?.length) rows.push(['Medications', ice.medications.join(', ')]);
+  if (ice.mobilityNotes) rows.push(['Mobility', ice.mobilityNotes]);
+  if (ice.sensoryNotes) rows.push(['Sensory', ice.sensoryNotes]);
+  if (contact?.name || contact?.relation)
+    rows.push(['Contact', [contact.name, contact.relation && `(${contact.relation})`].filter(Boolean).join(' ')]);
+  if (contact?.phone) rows.push(['Phone', <span key="p" className={MONO}>{contact.phone}</span>]);
+  if (rows.length === 0) return <p className="text-neutral-500">Profile on file but empty</p>;
+  return (
+    <Grid>
+      {rows.map(([label, value]) => (
+        <Row key={label} label={label}>
+          {value}
+        </Row>
+      ))}
+    </Grid>
+  );
+}
+
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="border-b border-neutral-800 px-4 py-3">
@@ -176,12 +301,20 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-function Notice({ children }: { children: ReactNode }) {
+function Notice({ children, label = 'Notice' }: { children: ReactNode; label?: string }) {
   return (
     <p className="rounded-[2px] border border-neutral-600 px-2.5 py-1.5 text-neutral-100">
-      <span className={`${LABEL} mr-2 text-neutral-400`}>Notice</span>
+      <span className={`${LABEL} mr-2 text-neutral-400`}>{label}</span>
       {children}
     </p>
+  );
+}
+
+function Tag({ children }: { children: ReactNode }) {
+  return (
+    <span className={`rounded-[2px] border border-neutral-600 px-1 text-[10px] tracking-[0.06em] text-neutral-300 uppercase ${MONO}`}>
+      {children}
+    </span>
   );
 }
 
@@ -191,7 +324,7 @@ function Source({ label, source, children }: { label: string; source: string; ch
       <div className="mb-0.5 text-[11px] text-neutral-500">
         {label} <span className={`${MONO} text-neutral-600`}>({source})</span>
       </div>
-      <p className="text-neutral-200">{children}</p>
+      {children}
     </div>
   );
 }
@@ -207,11 +340,6 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
       <dd className="text-neutral-200">{children}</dd>
     </>
   );
-}
-
-function List({ items }: { items: string[] }) {
-  if (items.length === 0) return <span className="text-neutral-600">None listed</span>;
-  return <>{items.join(', ')}</>;
 }
 
 function ActionButton({

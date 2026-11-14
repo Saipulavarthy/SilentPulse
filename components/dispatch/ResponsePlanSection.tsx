@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import type { Incident } from '@/types/incident';
 import type { PlanItem, PlanSource } from '@/types/responsePlan';
 import { FOCUS_RING, LABEL, MONO } from './ui';
-import type { PlanEntry } from './useResponsePlans';
+import { planBasis, type PlanEntry } from './useResponsePlans';
 
 export type CopyState = 'copied' | 'failed' | null;
 
@@ -101,8 +101,7 @@ function ReadyPlan({
 }) {
   const { plan } = entry;
   const ai = entry.source === 'ai';
-  const outOfDate =
-    entry.basis.severityScore !== incident.severityScore || entry.basis.crisisType !== incident.crisisType;
+  const outOfDate = entry.basis !== planBasis(incident);
 
   return (
     <div className="space-y-3">
@@ -117,7 +116,7 @@ function ReadyPlan({
         <div className="flex items-center justify-between gap-3 rounded-[2px] border border-neutral-600 px-2.5 py-1.5">
           <span className="text-neutral-100">
             <span className={`${LABEL} mr-2 text-neutral-400`}>Out of date</span>
-            Severity or type changed since this plan.
+            Severity, type, cues, reasons, trend or signal changed since this plan.
           </span>
           <PlanButton onClick={onGenerate} shortcut="G">
             Regenerate

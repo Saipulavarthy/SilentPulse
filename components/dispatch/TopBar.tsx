@@ -1,23 +1,55 @@
 import { severityTier, type Incident } from '@/types/incident';
 import { TIERS, TIER_STYLES } from './severity';
 import { LABEL, MONO } from './ui';
+import type { FeedSync } from './useIncidentFeed';
 
 type Props = {
   incidents: Incident[];
   now: number | null;
-  syncedAt: number | null;
+  sync: FeedSync;
 };
 
 const pad = (n: number) => String(n).padStart(2, '0');
 const DAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
 
-export function TopBar({ incidents, now, syncedAt }: Props) {
+function SyncStatus({ sync, now }: { sync: FeedSync; now: number | null }) {
+  const age = (t: number | null) => (now === null || t === null ? '–' : `${Math.max(0, Math.floor((now - t) / 1000))}s`);
+  switch (sync.state) {
+    case 'mock':
+      return (
+        <span className="flex items-center gap-2">
+          <span className="h-1.5 w-1.5 rounded-full bg-neutral-400" aria-hidden />
+          <span className="text-neutral-200">MOCK DATA</span>
+        </span>
+      );
+    case 'live':
+      return (
+        <span className="flex items-center gap-2">
+          <span className="h-1.5 w-1.5 rounded-full bg-sky-400 motion-safe:animate-pulse" aria-hidden />
+          <span className="text-neutral-100">LIVE</span>
+          <span className="text-neutral-500">last sync {age(sync.lastSync)} ago</span>
+        </span>
+      );
+    case 'error':
+      return (
+        <span className="flex items-center gap-2" role="alert" title={sync.message}>
+          <span className="h-1.5 w-1.5 rounded-full bg-red-500" aria-hidden />
+          <span className="text-red-300">SYNC FAILED</span>
+          <span className="text-neutral-400">
+            {sync.lastSync === null ? 'no data yet' : `showing data from ${age(sync.lastSync)} ago`}
+          </span>
+        </span>
+      );
+    default:
+      return <span className="text-neutral-500">CONNECTING…</span>;
+  }
+}
+
+export function TopBar({ incidents, now, sync }: Props) {
   const counts = Object.fromEntries(TIERS.map((t) => [t, 0])) as Record<(typeof TIERS)[number], number>;
   for (const i of incidents) if (i.status === 'ACTIVE') counts[severityTier(i.severityScore)]++;
-
   const d = now === null ? null : new Date(now);
-  const syncAge = now !== null && syncedAt !== null ? Math.floor((now - syncedAt) / 1000) : null;
 
   return (
     <header className="grid h-10 shrink-0 grid-cols-[1fr_auto_1fr] items-center border-b border-neutral-800 px-3">
@@ -39,11 +71,7 @@ export function TopBar({ incidents, now, syncedAt }: Props) {
       </div>
 
       <div className={`flex items-center justify-end gap-4 ${MONO} text-[12px]`}>
-        <span className="flex items-center gap-2 text-neutral-400">
-          <span className="h-1.5 w-1.5 rounded-full bg-neutral-400" aria-hidden />
-          <span className="text-neutral-200">MOCK DATA</span>
-          <span className="text-neutral-500">last sync {syncAge === null ? '–' : `${syncAge}s`} ago</span>
-        </span>
+        <SyncStatus sync={sync} now={now} />
         <span className="text-neutral-500">
           {d ? `${DAYS[d.getDay()]} ${pad(d.getDate())} ${MONTHS[d.getMonth()]} ${d.getFullYear()}` : '--- -- --- ----'}
         </span>

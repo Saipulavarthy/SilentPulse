@@ -1,8 +1,9 @@
 'use client';
 
 import { useCallback, useRef, useState } from 'react';
+import { landmarkAt } from '@/lib/landmarks';
 import { ruleBasedPlan } from '@/lib/responsePlan';
-import type { CrisisType, Incident } from '@/types/incident';
+import type { Incident } from '@/types/incident';
 import type { OtherCaller, PlanBuilding, PlanIncident, PlanResponse, ResponsePlan } from '@/types/responsePlan';
 import { tierStyle } from './severity';
 
@@ -18,8 +19,8 @@ export type PlanEntry =
       shortened?: number;
       /** Fallback only: the tier's recommended response. */
       recommended?: string;
-      /** What the plan was generated from, to detect when it goes out of date. */
-      basis: { severityScore: number; crisisType: CrisisType };
+      /** What the plan was generated from (see planBasis), to detect when it goes out of date. */
+      basis: string;
     }
   | { status: 'error'; message: string };
 
@@ -29,7 +30,14 @@ export const PREFETCH_MIN_SEVERITY = 7;
 type Context = { building: PlanBuilding | null; otherCallers: OtherCaller[] };
 type Job = { incident: PlanIncident; context: Context; attempt: number };
 
-const basisKey = (i: Pick<Incident, 'severityScore' | 'crisisType'>) => `${i.severityScore}|${i.crisisType}`;
+/** Background regeneration key: severity, type and signal loss (not every new cue or reason). */
+const basisKey = (i: Pick<Incident, 'severityScore' | 'crisisType' | 'escalated'>) =>
+  `${i.severityScore}|${i.crisisType}|${i.escalated ? 'lost' : ''}`;
+
+/** Everything the plan was drawn from: a change in any of it marks the plan out of date. */
+export function planBasis(i: Pick<Incident, 'severityScore' | 'crisisType' | 'escalated' | 'trend' | 'cues' | 'reasons'>): string {
+  return JSON.stringify([i.severityScore, i.crisisType, Boolean(i.escalated), i.trend ?? null, i.cues ?? [], i.reasons ?? []]);
+}
 
 /**
  * `?mock=1`: plans use the rule-based fallback and never call the API. Read when a request
@@ -41,8 +49,14 @@ const isMockMode = () => typeof window !== 'undefined' && new URLSearchParams(wi
 /** The building and the other open incidents in it (matched by building name). */
 export function planContext(incident: Incident, all: Incident[]): Context {
   const b = incident.building;
+  // Backend building first; otherwise the OSM name at the GPS point (name only).
+  const osm = !b && incident.gps ? landmarkAt(incident.gps.lng, incident.gps.lat) : undefined;
   return {
-    building: b ? { name: b.name, type: b.type, floors: b.floors, notes: b.notes } : null,
+    building: b
+      ? { name: b.name, type: b.type, floors: b.floors, notes: b.notes }
+      : osm
+        ? { name: osm.name, type: 'Building', floors: osm.levels ?? 0 }
+        : null,
     otherCallers: b
       ? all
           .filter((i) => i._id !== incident._id && i.status !== 'RESOLVED' && i.building?.name === b.name)
@@ -82,7 +96,7 @@ export function useResponsePlans() {
       if (inFlight.current.has(id)) return 'done';
       handled.current.set(id, basisKey(incident));
       const set = (entry: PlanEntry) => setPlans((prev) => ({ ...prev, [id]: entry }));
-      const basis = { severityScore: incident.severityScore, crisisType: incident.crisisType };
+      const basis = planBasis(incident);
       const fallback = (): PlanEntry => ({
         status: 'ready',
         plan: ruleBasedPlan(incident, building, otherCallers),

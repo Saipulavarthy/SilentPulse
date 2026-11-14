@@ -1,31 +1,33 @@
 'use client';
 
 import { useEffect, useEffectEvent, useMemo, useState } from 'react';
-import type { Incident, IncidentStatus } from '@/types/incident';
+import type { IncidentStatus } from '@/types/incident';
 import { IncidentDetail } from '@/components/dispatch/IncidentDetail';
 import { IncidentQueue } from '@/components/dispatch/IncidentQueue';
 import { MapPanel } from '@/components/dispatch/MapPanel';
 import { TopBar } from '@/components/dispatch/TopBar';
 import { FILTERS, applyFilter, type QueueFilter } from '@/components/dispatch/severity';
 import { useClock } from '@/components/dispatch/useClock';
+import { useIncidentFeed } from '@/components/dispatch/useIncidentFeed';
 import type { CopyState } from '@/components/dispatch/ResponsePlanSection';
 import { planContext, useResponsePlans } from '@/components/dispatch/useResponsePlans';
-import { mockIncidents } from './mockIncidents';
+import { MONO } from '@/components/dispatch/ui';
 
 export default function DispatchPage() {
-  // Mock data only until the API is ready. Status changes are local state.
-  const [incidents, setIncidents] = useState<Incident[]>(mockIncidents);
+  // Live /api/incidents every 2 s, or mock data at ?mock=1 only.
+  const { incidents, sync, setStatus: saveStatus, mutationError, clearMutationError } = useIncidentFeed();
   const [filter, setFilter] = useState<QueueFilter>('open');
-  const [selectedId, setSelectedId] = useState<string | null>(
-    () => applyFilter(mockIncidents, 'open')[0]?._id ?? null,
-  );
-  const { now, startedAt } = useClock(1000);
+  // null until the dispatcher picks one; until then the top open incident is selected.
+  // Selection is by _id, so it stays on the same incident while polls reorder the list.
+  const [pickedId, setPickedId] = useState<string | null>(null);
+  const { now } = useClock(1000);
 
   const visible = useMemo(() => applyFilter(incidents, filter), [incidents, filter]);
   const counts = useMemo(
     () => Object.fromEntries(FILTERS.map((f) => [f.key, applyFilter(incidents, f.key).length])) as Record<QueueFilter, number>,
     [incidents],
   );
+  const selectedId = pickedId ?? applyFilter(incidents, 'open')[0]?._id ?? null;
   const selected = incidents.find((i) => i._id === selectedId) ?? null;
   const { plans, generate, prefetch, ticks, toggleTick } = useResponsePlans();
   const [copied, setCopied] = useState<{ id: string; state: CopyState } | null>(null);
@@ -49,13 +51,19 @@ export default function DispatchPage() {
     return () => clearTimeout(t);
   }, [copied]);
 
+  useEffect(() => {
+    if (!mutationError) return;
+    const t = setTimeout(clearMutationError, 8000);
+    return () => clearTimeout(t);
+  }, [mutationError, clearMutationError]);
+
   /** On demand (button or G): plan for the selected incident, any severity. */
   function generatePlan() {
     if (selected) generate(selected, planContext(selected, incidents));
   }
 
   // Background plans for severity ≥ 7 incidents that are new or changed. This reacts to the
-  // incident list changing; it is deliberately not called from inside any polling fetch.
+  // incident list changing; it is deliberately not called from inside the polling fetch.
   useEffect(() => {
     prefetch(incidents);
   }, [incidents, prefetch]);
@@ -63,31 +71,31 @@ export default function DispatchPage() {
   function changeFilter(next: QueueFilter) {
     setFilter(next);
     const list = applyFilter(incidents, next);
-    if (!list.some((i) => i._id === selectedId)) setSelectedId(list[0]?._id ?? selectedId);
+    if (!list.some((i) => i._id === selectedId)) setPickedId(list[0]?._id ?? selectedId);
   }
 
   function moveSelection(delta: 1 | -1) {
     if (visible.length === 0) return;
     const idx = visible.findIndex((i) => i._id === selectedId);
     const next = idx === -1 ? 0 : Math.min(visible.length - 1, Math.max(0, idx + delta));
-    setSelectedId(visible[next]._id);
+    setPickedId(visible[next]._id);
   }
 
-  /** Updates status; if the incident leaves the current view, select the row that took its place. */
+  /** Optimistic status change; if the incident leaves the current view, select the row that took its place. */
   function setStatus(status: IncidentStatus) {
     if (!selected) return;
     if (status === 'ACKNOWLEDGED' && selected.status !== 'ACTIVE') return;
     if (status === 'RESOLVED' && selected.status === 'RESOLVED') return;
 
-    const updatedAt = new Date().toISOString();
-    const nextIncidents = incidents.map((i) => (i._id === selected._id ? { ...i, status, updatedAt } : i));
-    setIncidents(nextIncidents);
-
-    const nextVisible = applyFilter(nextIncidents, filter);
+    const nextVisible = applyFilter(
+      incidents.map((i) => (i._id === selected._id ? { ...i, status } : i)),
+      filter,
+    );
     if (!nextVisible.some((i) => i._id === selected._id) && nextVisible.length > 0) {
       const idx = visible.findIndex((i) => i._id === selected._id);
-      setSelectedId(nextVisible[Math.min(Math.max(idx, 0), nextVisible.length - 1)]._id);
+      setPickedId(nextVisible[Math.min(Math.max(idx, 0), nextVisible.length - 1)]._id);
     }
+    void saveStatus(selected._id, status);
   }
 
   const onKeyDown = useEffectEvent((e: KeyboardEvent) => {
@@ -129,7 +137,15 @@ export default function DispatchPage() {
 
   return (
     <>
-      <TopBar incidents={incidents} now={now} syncedAt={startedAt} />
+      <TopBar incidents={incidents} now={now} sync={sync} />
+      {mutationError && (
+        <div role="alert" className={`flex shrink-0 items-center justify-between gap-3 border-b border-red-900 bg-red-950/60 px-3 py-1.5 text-[12px] text-red-200 ${MONO}`}>
+          <span>{mutationError}</span>
+          <button type="button" onClick={clearMutationError} className="text-red-300 hover:text-red-100">
+            Dismiss
+          </button>
+        </div>
+      )}
       <main className="grid min-h-0 flex-1 grid-cols-[420px_minmax(0,1fr)_360px]">
         <IncidentQueue
           incidents={visible}
@@ -137,10 +153,10 @@ export default function DispatchPage() {
           filter={filter}
           onFilter={changeFilter}
           selectedId={selectedId}
-          onSelect={setSelectedId}
+          onSelect={setPickedId}
           now={now}
         />
-        <MapPanel incidents={incidents} selectedId={selectedId} onSelect={setSelectedId} />
+        <MapPanel incidents={incidents} selectedId={selectedId} onSelect={setPickedId} />
         <IncidentDetail
           incident={selected}
           now={now}

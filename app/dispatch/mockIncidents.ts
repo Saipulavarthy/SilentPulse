@@ -1,5 +1,4 @@
-import type { Incident } from '@/types/incident';
-import type { PlanIceProfile, PlanIncident } from '@/types/responsePlan';
+import { VICTIM_INSTRUCTIONS, statusToDispatcherStatus, type Incident } from '@/types/incident';
 
 // MOCK DATA: every person, user ID, phone number, medical detail and event below is
 // fictional. Phone numbers use the reserved 555-01xx range. GPS points sit inside the
@@ -8,18 +7,6 @@ import type { PlanIceProfile, PlanIncident } from '@/types/responsePlan';
 // Timestamps are relative to module load so the feed always looks like the last 10 minutes.
 
 const minsAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
-
-/**
- * Fields the triage pipeline on main now sends (perception cues, triage reasons, timeline,
- * signal loss, mobility/sensory notes). Our Incident type gains them when main is merged;
- * until then the mocks carry them as extra fields.
- */
-type MainFields = Pick<
-  PlanIncident,
-  'cues' | 'reasons' | 'trend' | 'timeline' | 'escalated' | 'escalationReason' | 'lastSeenAt' | 'updateCount'
->;
-export type MockIncident = Omit<Incident, 'iceProfile'> &
-  MainFields & { iceProfile: Incident['iceProfile'] & Pick<PlanIceProfile, 'mobilityNotes' | 'sensoryNotes'> };
 
 const tick = (m: number, severityScore: number, crisisType: Incident['crisisType'], extra: { lowBandwidth?: boolean; sceneSummary?: string } = {}) => ({
   ts: minsAgo(m),
@@ -31,7 +18,9 @@ const tick = (m: number, severityScore: number, crisisType: Incident['crisisType
   sceneSummary: extra.sceneSummary,
 });
 
-export const mockIncidents: MockIncident[] = [
+type MockInput = Omit<Incident, 'victimInstructions' | 'dispatcherStatus'>;
+
+const base: MockInput[] = [
   {
     _id: 'mock-001',
     userId: 'user-ajames',
@@ -320,3 +309,10 @@ export const mockIncidents: MockIncident[] = [
     updatedAt: minsAgo(3.5),
   },
 ];
+
+/** The main mock set, completed with the fields main's contract requires. */
+export const mockIncidents: Incident[] = base.map((m) => ({
+  ...m,
+  victimInstructions: VICTIM_INSTRUCTIONS[m.crisisType],
+  dispatcherStatus: statusToDispatcherStatus(m.status),
+}));

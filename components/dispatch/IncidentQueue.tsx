@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useLayoutEffect, useRef, type ReactNode } from 'react';
 import type { Incident } from '@/types/incident';
 import {
   FILTERS,
@@ -8,6 +8,7 @@ import {
   elapsed,
   incidentNumber,
   isReview,
+  locationLabel,
   tierStyle,
   typeLabel,
   type QueueFilter,
@@ -30,10 +31,41 @@ const COLS =
   'grid grid-cols-[20px_54px_minmax(0,1.1fr)_minmax(0,1fr)_50px_70px] items-center gap-x-1.5';
 const rowId = (id: string) => `queue-row-${id}`;
 
+/**
+ * Smooth reordering when incidents update in place (same _id, new severity or type): each row
+ * that moved is shifted back to where it was and animated to its new place (FLIP).
+ */
+function useRowReorderAnimation(order: string) {
+  const rows = useRef(new Map<string, HTMLElement>());
+  const lastTop = useRef(new Map<string, number>());
+  useLayoutEffect(() => {
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const next = new Map<string, number>();
+    for (const [id, el] of rows.current) {
+      const top = el.offsetTop;
+      next.set(id, top);
+      const before = lastTop.current.get(id);
+      if (reduce || before === undefined || before === top) continue;
+      el.style.transition = 'none';
+      el.style.transform = `translateY(${before - top}px)`;
+      requestAnimationFrame(() => {
+        el.style.transition = 'transform 260ms ease';
+        el.style.transform = '';
+      });
+    }
+    lastTop.current = next;
+  }, [order]);
+  return (id: string) => (el: HTMLElement | null) => {
+    if (el) rows.current.set(id, el);
+    else rows.current.delete(id);
+  };
+}
+
 export function IncidentQueue({ incidents, counts, filter, onFilter, selectedId, onSelect, now }: Props) {
   useEffect(() => {
     if (selectedId) document.getElementById(rowId(selectedId))?.scrollIntoView({ block: 'nearest' });
   }, [selectedId]);
+  const rowRef = useRowReorderAnimation(incidents.map((i) => i._id).join(','));
 
   const selectedVisible = incidents.some((i) => i._id === selectedId);
 
@@ -85,6 +117,7 @@ export function IncidentQueue({ incidents, counts, filter, onFilter, selectedId,
           return (
             <div
               key={incident._id}
+              ref={rowRef(incident._id)}
               id={rowId(incident._id)}
               role="option"
               aria-selected={selected}
@@ -99,11 +132,13 @@ export function IncidentQueue({ incidents, counts, filter, onFilter, selectedId,
               <span className={`${MONO} text-[12px] ${selected ? 'text-neutral-100' : 'text-neutral-400'}`}>
                 {incidentNumber(incident._id)}
               </span>
-              <span className="truncate" title={typeLabel(incident)}>
-                {typeLabel(incident)}
+              <span className="flex min-w-0 items-center gap-1" title={typeLabel(incident)}>
+                <span className="truncate">{typeLabel(incident)}</span>
+                {incident.escalated && <RowTag tone="alert">Signal lost</RowTag>}
+                {incident.simulated && <RowTag>Sim</RowTag>}
               </span>
-              <span className="truncate text-neutral-400" title={incident.building?.name ?? 'Unknown location'}>
-                {incident.building?.name ?? 'Unknown location'}
+              <span className={`truncate ${incident.gps || incident.building ? 'text-neutral-400' : 'text-neutral-600'}`} title={locationLabel(incident)}>
+                {locationLabel(incident)}
               </span>
               <span className={`${MONO} text-right text-[12px]`}>{elapsed(incident.createdAt, now)}</span>
               <span className={`flex items-center gap-1.5 ${MONO} text-[10px]`}>
@@ -127,5 +162,17 @@ export function IncidentQueue({ incidents, counts, filter, onFilter, selectedId,
         <span>R resolve</span>
       </div>
     </section>
+  );
+}
+
+function RowTag({ children, tone }: { children: ReactNode; tone?: 'alert' }) {
+  return (
+    <span
+      className={`shrink-0 rounded-[2px] border px-1 text-[9px] leading-[13px] tracking-[0.04em] uppercase ${MONO} ${
+        tone === 'alert' ? 'border-red-500/70 text-red-300' : 'border-neutral-600 text-neutral-400'
+      }`}
+    >
+      {children}
+    </span>
   );
 }

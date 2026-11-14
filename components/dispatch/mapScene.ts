@@ -33,7 +33,7 @@ export type BuildingFeature = {
 export type SceneGroup = {
   key: string;
   /** Highest severity first; the first one is selected when the badge is clicked. */
-  incidents: Incident[];
+  incidents: MappedIncident[];
   footprint: Footprint | null;
   /** Badge anchor: the primary incident's GPS point, at roof height if on a building. */
   lng: number;
@@ -41,7 +41,12 @@ export type SceneGroup = {
   altitude: number;
 };
 
-export const isDrawn = (i: Incident) => i.status !== 'RESOLVED';
+/** An incident with a usable GPS fix. Incidents without one are never drawn on the map. */
+export type MappedIncident = Incident & { gps: NonNullable<Incident['gps']> };
+
+/** Drawn on the map: not resolved, and has a GPS fix. */
+export const isDrawn = (i: Incident): i is MappedIncident =>
+  i.status !== 'RESOLVED' && i.gps !== undefined && Number.isFinite(i.gps.lat) && Number.isFinite(i.gps.lng);
 
 function inRing([x, y]: [number, number], ring: Ring): boolean {
   let inside = false;
@@ -160,7 +165,7 @@ export function buildingOf(polygons: TilePolygon[], seed: TilePolygon): { outlin
  */
 export function findFootprints(
   polygons: TilePolygon[],
-  incidents: Incident[],
+  incidents: MappedIncident[],
   isInView: (lng: number, lat: number) => boolean,
   previous: Map<string, Footprint | null>,
 ): Map<string, Footprint | null> {
@@ -196,7 +201,7 @@ export function findFootprints(
  * inside that group's building outline (robust to the same building appearing in several
  * tiles). Incidents with no building stay on their own.
  */
-export function groupIncidents(incidents: Incident[], footprints: Map<string, Footprint | null>): SceneGroup[] {
+export function groupIncidents(incidents: MappedIncident[], footprints: Map<string, Footprint | null>): SceneGroup[] {
   const groups: SceneGroup[] = [];
   const sorted = [...incidents].sort(
     (a, b) => b.severityScore - a.severityScore || Date.parse(b.createdAt) - Date.parse(a.createdAt),

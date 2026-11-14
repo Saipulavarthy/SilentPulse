@@ -29,6 +29,7 @@ import {
   tilePolygons,
   type BuildingFeature,
   type Footprint,
+  type MappedIncident,
   type SceneGroup,
   type TilePolygon,
 } from './mapScene';
@@ -104,7 +105,8 @@ export default function IncidentMap({ incidents, selectedId, onSelect }: MapPane
   const matrixRef = useRef<ArrayLike<number> | null>(null);
   const lastFlownRef = useRef<string | null>(null);
   const [ready, setReady] = useState(false);
-  const [initialDrawn] = useState(() => incidents.filter(isDrawn));
+  // Overview frames incidents on campus only, so one far-off GPS fix can't zoom the map out.
+  const [initialDrawn] = useState(() => incidents.filter(isDrawn).filter(onCampus));
   const [mode, setMode] = useState<MapMode>(sessionMode);
   const [notice, setNotice] = useState<string | null>(null);
   const modeRef = useRef<MapMode>('3d');
@@ -422,12 +424,19 @@ export default function IncidentMap({ incidents, selectedId, onSelect }: MapPane
     if (ready) lookupFootprints();
   }, [ready, incidents]);
 
+  // Off-campus fixes must stay reachable: widen the pan limits to include them.
+  const boundsKey = JSON.stringify(panBounds(incidents.filter(isDrawn)));
+  useEffect(() => {
+    const map = mapRef.current;
+    if (ready && map) map.setMaxBounds(JSON.parse(boundsKey));
+  }, [ready, boundsKey]);
+
   useEffect(() => {
     if (ready) renderScene();
   }, [ready, incidents, selectedId]);
 
   // Fly to the selected incident (not on first load, which keeps the overview).
-  const selected = incidents.find((i) => i._id === selectedId && isDrawn(i));
+  const selected = incidents.filter(isDrawn).find((i) => i._id === selectedId);
   const lat = selected?.gps.lat;
   const lng = selected?.gps.lng;
   useEffect(() => {
@@ -470,7 +479,26 @@ export default function IncidentMap({ incidents, selectedId, onSelect }: MapPane
  * Frames the open incidents: centre on their middle (so they sit mid-panel at any pitch),
  * zoom to fit but never further out than MIN_OVERVIEW_ZOOM.
  */
-function overviewCamera(map: MapLibreMap, incidents: Incident[]): JumpToOptions {
+const onCampus = (i: MappedIncident) =>
+  i.gps.lng >= CAMPUS_BOUNDS[0][0] && i.gps.lng <= CAMPUS_BOUNDS[1][0] && i.gps.lat >= CAMPUS_BOUNDS[0][1] && i.gps.lat <= CAMPUS_BOUNDS[1][1];
+
+/** Pan limits: the campus box, widened to include every incident's GPS fix (plus a margin). */
+function panBounds(incidents: MappedIncident[]): [[number, number], [number, number]] {
+  const pad = 0.01;
+  let [[w, s], [e, n]] = CAMPUS_BOUNDS;
+  for (const i of incidents) {
+    w = Math.min(w, i.gps.lng - pad);
+    e = Math.max(e, i.gps.lng + pad);
+    s = Math.min(s, i.gps.lat - pad);
+    n = Math.max(n, i.gps.lat + pad);
+  }
+  return [
+    [w, s],
+    [e, n],
+  ];
+}
+
+function overviewCamera(map: MapLibreMap, incidents: MappedIncident[]): JumpToOptions {
   if (incidents.length === 0) return { center: FALLBACK_CENTER, zoom: MIN_OVERVIEW_ZOOM, pitch: PITCH, bearing: BEARING };
   const bounds = new LngLatBounds();
   for (const i of incidents) bounds.extend([i.gps.lng, i.gps.lat]);

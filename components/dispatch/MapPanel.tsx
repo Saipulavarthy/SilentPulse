@@ -1,6 +1,7 @@
 'use client';
 
 import dynamic from 'next/dynamic';
+import { MapErrorBoundary } from './MapErrorBoundary';
 import type { Incident } from '@/types/incident';
 import { TIERS, TIER_STYLES } from './severity';
 import { LABEL, MONO } from './ui';
@@ -33,7 +34,9 @@ const LEGEND: { tier: (typeof TIERS)[number]; range: string }[] = [
 export function MapPanel(props: MapPanelProps) {
   return (
     <section className="relative isolate min-h-0 overflow-hidden" aria-label="Incident map">
-      <IncidentMap {...props} />
+      <MapErrorBoundary>
+        <IncidentMap {...props} />
+      </MapErrorBoundary>
 
       {/* Sits above the attribution, which wraps to two lines in satellite mode. */}
       <div className="pointer-events-none absolute bottom-16 left-3 z-[1000] border border-neutral-800 bg-[#0b0b0c]/90 px-2.5 py-2">
