@@ -1,26 +1,120 @@
 @import "tailwindcss";
 
+/*
+ * SilentPulse design tokens — iOS dark system palette.
+ * The app is intentionally dark-only: it is used at night and in situations
+ * where a bright screen could draw attention (HIG › Dark Mode: "In rare cases,
+ * consider using only a dark appearance").
+ *
+ * Contrast (white text unless noted):
+ *   sos      #E5251B  4.55:1   — reserved for HELP / SOS only
+ *   fire     #B53100  6.17:1   (white/85: 4.85:1)
+ *   medical  #0040DD  7.56:1   (white/85: 5.84:1)
+ *   tint-fill#0064D2  5.59:1   — form / primary buttons
+ *   label-2  #AEAEB2  7.69:1 on surface
+ *   label-3  #8E8E93  5.22:1 on surface, 6.44:1 on black
+ *   tint     #0A84FF  5.76:1 on black (links)
+ *   safe     #30D158  black text 10.4:1
+ */
+@theme {
+  --color-surface: #1c1c1e;
+  --color-surface-2: #2c2c2e;
+  --color-separator: #38383a;
+  --color-label-2: #aeaeb2;
+  --color-label-3: #8e8e93;
+  --color-sos: #e5251b;
+  --color-fire: #b53100;
+  --color-medical: #0040dd;
+  --color-safe: #30d158;
+  --color-warn: #ffd60a;
+  --color-tint: #0a84ff;
+  --color-tint-fill: #0064d2;
+
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro",
+    "Helvetica Neue", system-ui, sans-serif;
+
+  --animate-breathe: breathe 8s ease-in-out infinite;
+  /* Transform-only entrance: if the animation is ever paused or skipped,
+     content is still fully visible (never starts from opacity 0). */
+  --animate-screen-in: screen-in 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  @keyframes screen-in {
+    from {
+      transform: translateY(6px);
+    }
+    to {
+      transform: none;
+    }
+  }
+
+  @keyframes breathe {
+    0%,
+    100% {
+      transform: scale(0.72);
+      opacity: 0.55;
+    }
+    50% {
+      transform: scale(1);
+      opacity: 1;
+    }
+  }
+}
+
+/*
+ * Translucent material for the floating navigation layer only (tab bar,
+ * sidebar). Never used on content. Becomes opaque with Reduce Transparency.
+ */
+@utility material {
+  background-color: rgb(28 28 30 / 0.72);
+  -webkit-backdrop-filter: saturate(180%) blur(24px);
+  backdrop-filter: saturate(180%) blur(24px);
+
+  @media (prefers-reduced-transparency: reduce) {
+    background-color: #1c1c1e;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  color-scheme: dark;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+html {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+/* iPhone / iPad only: adopt the system body style so text follows Dynamic
+   Type. Sizes in the app are rem-based, so they scale with this root size.
+   `-webkit-touch-callout` exists only in iOS Safari, which keeps macOS Safari
+   (whose body style is 13 px) at the normal 16 px root. */
+@supports (font: -apple-system-body) and (-webkit-touch-callout: none) {
+  html {
+    font: -apple-system-body;
   }
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: #000000;
+  color: #ffffff;
+  -webkit-tap-highlight-color: transparent;
+}
+
+@layer base {
+  /* Mac: pointer cursor on anything clickable, visible keyboard focus. */
+  button:not(:disabled),
+  [role="button"],
+  [role="tab"],
+  a[href],
+  select {
+    cursor: pointer;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-tint);
+    outline-offset: 3px;
+  }
 }
