@@ -1,22 +1,26 @@
-// Shared response-plan logic: validation of model output, the facts sent to the model,
-// and a deterministic rule-based fallback. No SDK imports, so the client can use it too.
+// Shared response-plan logic: the facts sent to the model, which sources each incident has,
+// the deterministic situation line, validation of model output, and the rule-based fallback.
+// No SDK imports, so the client can use it too.
 
-import { severityTier, type SeverityTier } from '@/types/incident';
+import { severityTier } from '@/types/incident';
 import {
-  UNIT_TYPES,
+  PLAN_SOURCES,
+  type OtherCaller,
   type PlanBuilding,
   type PlanIncident,
-  type PlanUnit,
+  type PlanItem,
+  type PlanSource,
   type ResponsePlan,
-  type UnitType,
 } from '@/types/responsePlan';
 
 export const MAX_WORDS = 20;
-export const MAX_FIRST_ACTIONS = 4;
+export const MAX_RISKS = 3;
+export const MAX_ACTIONS = 3;
+export const MAX_UNKNOWNS = 4;
+const MAX_BRIEF_SENTENCES = 2;
 
 const tokens = (s: string) => s.trim().split(/\s+/).filter(Boolean);
 const isText = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0;
-const isTextList = (v: unknown): v is string[] => Array.isArray(v) && v.every(isText);
 
 /**
  * Shortens text to fewer than `limit` words. Cuts after the last sentence end (. ! ?) or,
@@ -39,199 +43,273 @@ export function shorten(text: string, limit = MAX_WORDS): { text: string; cut: b
   return { text: `${head.join(' ')}…`, cut: true };
 }
 
-/**
- * Checks parsed model output against ResponsePlan. Structural problems (wrong types,
- * unknown unit types, empty text, more than 4 first actions) reject
- * the plan. Items of 20+ words (approach: 40+) are kept but shortened at a sentence or
- * clause boundary; `shortened` says how many. Nothing is ever filled in.
- */
-export function validatePlan(value: unknown): { plan: ResponsePlan; shortened: number } | { problems: string[] } {
-  if (typeof value !== 'object' || value === null) return { problems: ['not an object'] };
-  const v = value as Record<string, unknown>;
-  const problems: string[] = [];
+/** Abbreviations whose period does not end a sentence: initials (W.E.B.) and common short forms. */
+const NOT_A_SENTENCE_END = /^(([A-Za-z]\.)+|Dr\.|St\.|Mr\.|Mrs\.|Ms\.|No\.|vs\.|approx\.|e\.g\.|i\.e\.)$/;
 
-  if (!Array.isArray(v.units)) problems.push('units is not an array');
-  else
-    v.units.forEach((u: unknown, i: number) => {
-      const unit = (u ?? {}) as Record<string, unknown>;
-      if (!UNIT_TYPES.includes(unit.type as UnitType)) problems.push(`units[${i}].type is not one of ${UNIT_TYPES.join('/')}`);
-      if (!isText(unit.reason)) problems.push(`units[${i}].reason is missing`);
-    });
-  if (!isText(v.approach)) problems.push('approach is missing');
-  for (const key of ['equipment', 'cautions', 'firstActions', 'unknowns'] as const) {
-    if (!isTextList(v[key])) problems.push(`${key} is not a list of non-empty strings`);
+/** Splits into sentences on . ! ? followed by a space, ignoring initials and abbreviations. */
+function sentences(s: string): string[] {
+  const out: string[] = [];
+  let current: string[] = [];
+  for (const word of s.trim().split(/\s+/).filter(Boolean)) {
+    current.push(word);
+    if (/[.!?]["')\]]?$/.test(word) && !NOT_A_SENTENCE_END.test(word)) {
+      out.push(current.join(' '));
+      current = [];
+    }
   }
-  if (Array.isArray(v.firstActions) && v.firstActions.length > MAX_FIRST_ACTIONS) problems.push('firstActions has more than 4 items');
-  if (problems.length) return { problems };
-
-  let shortened = 0;
-  const fit = (s: string, limit = MAX_WORDS) => {
-    const r = shorten(s, limit);
-    if (r.cut) shortened++;
-    return r.text;
-  };
-  const plan: ResponsePlan = {
-    units: (v.units as PlanUnit[]).map((u) => ({ type: u.type, reason: fit(u.reason) })),
-    // "One or two sentences": allow up to 2 × the item limit.
-    approach: fit(v.approach as string, MAX_WORDS * 2),
-    equipment: (v.equipment as string[]).map((s) => fit(s)),
-    cautions: (v.cautions as string[]).map((s) => fit(s)),
-    firstActions: (v.firstActions as string[]).map((s) => fit(s)),
-    unknowns: (v.unknowns as string[]).map((s) => fit(s)),
-  };
-  return { plan, shortened };
+  if (current.length) out.push(current.join(' '));
+  return out;
 }
+
+// ---- safety and specificity filters --------------------------------------------------------------
 
 /** Caller's device is silenced during active threats: no calls, texts or audible alerts. */
 export const isStealth = (incident: Pick<PlanIncident, 'crisisType'>) => incident.crisisType === 'ACTIVE_THREAT';
 
 const CONTACT = /\b(call(ing)?\s*back|callback|re-?call|(call|phone|ring|text|sms|message|page|alert|notify|contact)(ing)?\s+(the\s+)?(caller|user|reporting party|sender))\b|\baudible\b/i;
 const NEGATED = /\b(do\s+not|don'?t|not|never|avoid|without|no)\b/i;
+/** Suggests contacting a caller in stealth mode, and is not a prohibition ("Do not call back"). */
+const contactsCaller = (s: string) => CONTACT.test(s) && !NEGATED.test(s);
 
-/**
- * Plan items that suggest contacting a caller whose device is in stealth mode (calling back,
- * texting, audible alerts), unless the item is a prohibition ("Do not call back").
- */
-export function stealthViolations(plan: ResponsePlan): string[] {
-  const items = [plan.approach, ...plan.firstActions, ...plan.equipment, ...plan.units.map((u) => u.reason)];
-  return items.filter((s) => CONTACT.test(s) && !NEGATED.test(s));
-}
+/** Advice that fits any incident of the type, which the dispatcher already knows. */
+const GENERIC =
+  /\b(protective (gear|equipment)|body armou?r|ballistic|ppe|radios?\b|radio contact|perimeter|stage (units|nearby|at a safe)|staging area|use caution|proceed with caution|approach (with )?caution|exercise caution|stay safe|dispatch (units|appropriate)|standard (police|medical) (gear|kit|equipment))/i;
 
-/**
- * The facts the model sees. Deliberately minimal: no names, phone numbers, user id or exact
- * coordinates, which the plan doesn't need and shouldn't leave the system.
- */
-export function planFacts(incident: PlanIncident, building: PlanBuilding | null, otherOpenInBuilding: number) {
-  const ice = incident.iceProfile;
-  // Compact: fields that are absent, false or empty are omitted rather than sent as null.
-  return prune({
-    crisisType: incident.crisisType,
-    callerDevice: isStealth(incident) ? 'stealth mode: no calls, texts or audible/visible alerts' : undefined,
-    severityScore: incident.severityScore,
-    severityTier: severityTier(incident.severityScore),
-    status: incident.status,
-    sceneVerified: !incident.lowBandwidth && !incident.classificationFailed,
-    lowBandwidth: incident.lowBandwidth || undefined,
-    classificationFailed: incident.classificationFailed || undefined,
-    dispatcherBrief: incident.dispatcherBrief,
-    sceneSummary: incident.sceneSummary,
-    gpsAccuracyMetres: incident.gps.accuracy,
-    building: building ? prune({ name: building.name, type: building.type, floors: building.floors, notes: building.notes }) : undefined,
-    otherOpenIncidentsInSameBuilding: otherOpenInBuilding || undefined,
-    // The profile of whoever's phone sent the SOS, not necessarily the person in distress.
-    // Ownership is restated here, at the point of use: rule 4 in the prompt alone was not
-    // enough for flash-lite models, which then applied it to the person in distress.
-    callerMedicalProfile: prune({
-      owner: 'caller (owner of the SOS phone); may not be the person in distress',
-      age: ice.age,
-      conditions: ice.conditions,
-      allergies: ice.allergies,
-      medications: ice.medications,
-    }),
-  });
-}
+/** "Scene is verified" and similar: the pipeline can never verify a scene. */
+const CLAIMS_VERIFIED = /\b(?<!un)verified\b|\bconfirmed (scene|threat|emergency)\b/i;
+/** Any talk of verification: only allowed when the input marks the scene unverified. */
+const MENTIONS_VERIFICATION = /\b(un)?verified\b|\bunconfirmed\b/i;
 
-/** Drops undefined, null and empty-array fields. */
+// ---- facts and sources ---------------------------------------------------------------------------
+
+const minutesSince = (iso: string | undefined, now: number) =>
+  iso ? Math.max(0, Math.round((now - Date.parse(iso)) / 60_000)) : undefined;
+
+/** Drops undefined, null, false and empty-array fields. */
 function prune<T extends Record<string, unknown>>(o: T): Partial<T> {
   return Object.fromEntries(
-    Object.entries(o).filter(([, v]) => v !== undefined && v !== null && !(Array.isArray(v) && v.length === 0)),
+    Object.entries(o).filter(([, v]) => v !== undefined && v !== null && v !== false && !(Array.isArray(v) && v.length === 0)),
   ) as Partial<T>;
 }
 
-// ---- rule-based fallback --------------------------------------------------------------------
+/** The caller-profile fields that can change what responders do. */
+function callerProfile(incident: PlanIncident) {
+  const ice = incident.iceProfile;
+  if (!ice) return undefined;
+  const profile = prune({
+    age: ice.age,
+    conditions: ice.conditions,
+    allergies: ice.allergies,
+    medications: ice.medications,
+    mobilityNotes: ice.mobilityNotes,
+    sensoryNotes: ice.sensoryNotes,
+  });
+  const { age, ...rest } = profile;
+  if (Object.keys(rest).length === 0) return undefined;
+  // Ownership restated at the point of use: flash-lite models otherwise apply it to the patient.
+  return { owner: 'caller (owner of the SOS phone); may not be the person in distress', age, ...rest };
+}
 
-/** Unit types only: the fallback follows no real protocol, so it never states counts. */
-const UNIT_TYPES_FOR: Record<Exclude<SeverityTier, 'low'>, Record<PlanIncident['crisisType'], UnitType[]>> = {
-  urgent: { ACTIVE_THREAT: ['Police'], MEDICAL_CRISIS: ['EMS'], ENVIRONMENTAL_HAZARD: ['Fire'], UNKNOWN: ['Police'] },
-  critical: {
-    ACTIVE_THREAT: ['Police', 'EMS'],
-    MEDICAL_CRISIS: ['EMS', 'Fire'],
-    ENVIRONMENTAL_HAZARD: ['Fire', 'EMS'],
-    UNKNOWN: ['Police', 'EMS'],
-  },
-  lethal: {
-    ACTIVE_THREAT: ['Police', 'EMS'],
-    MEDICAL_CRISIS: ['EMS', 'Fire'],
-    ENVIRONMENTAL_HAZARD: ['Fire', 'Hazmat', 'EMS'],
-    UNKNOWN: ['Police', 'EMS'],
-  },
-};
-
-const APPROACH: Record<PlanIncident['crisisType'], string> = {
-  ACTIVE_THREAT: 'Stage police at a safe distance; EMS waits outside until the scene is secured.',
-  MEDICAL_CRISIS: 'Send EMS to the nearest accessible entrance; confirm the patient location on arrival.',
-  ENVIRONMENTAL_HAZARD: 'Stage upwind and outside the hazard area; enter only after assessment.',
-  UNKNOWN: 'Scene unverified. Approach cautiously and confirm what is happening before committing units.',
-};
-
-const EQUIPMENT: Record<PlanIncident['crisisType'], string[]> = {
-  ACTIVE_THREAT: ['Ballistic protection', 'Trauma kits'],
-  MEDICAL_CRISIS: ['AED', 'Standard medical kit'],
-  ENVIRONMENTAL_HAZARD: ['Respiratory protection', 'Gas detection'],
-  UNKNOWN: ['Standard medical kit'],
-};
-
-const clip = (s: string) => s.trim().split(/\s+/).slice(0, MAX_WORDS - 1).join(' ');
+function timelineFacts(incident: PlanIncident, now: number) {
+  const tl = incident.timeline ?? [];
+  const updates = Math.max(tl.length, incident.updateCount ?? 0, 1);
+  if (updates <= 1 && !incident.escalated) return undefined;
+  return prune({
+    updates,
+    minutesSinceFirstAlert: minutesSince(tl[0]?.ts ?? incident.createdAt, now),
+    severityHistory: tl.length > 1 ? tl.map((t) => t.severityScore) : undefined,
+    trend: incident.trend,
+    signalLost: incident.escalated ? (incident.escalationReason ?? 'signal lost') : undefined,
+    minutesSinceLastUpdate: incident.escalated ? minutesSince(incident.lastSeenAt, now) : undefined,
+  });
+}
 
 /**
- * Deterministic plan from severity tier and crisis type, plus facts already in the incident.
- * Units carry no counts; each unit's reason is the tier's recommended response text.
+ * The facts the model sees, grouped by the source names plan items must cite. Deliberately
+ * minimal: no names, phone numbers, user id or exact coordinates.
  */
-export function ruleBasedPlan(
-  incident: PlanIncident,
-  building: PlanBuilding | null,
-  otherOpenInBuilding: number,
-  tierResponse: string,
-): ResponsePlan {
-  const tier = severityTier(incident.severityScore);
-  const unverified = incident.lowBandwidth || Boolean(incident.classificationFailed);
-  const ice = incident.iceProfile;
+export function planFacts(incident: PlanIncident, building: PlanBuilding | null, otherCallers: OtherCaller[], now = Date.now()) {
+  // Only present when it applies: mentioning verification otherwise primes the model to hedge.
+  const sceneStatus = incident.lowBandwidth
+    ? 'unverified: no image or audio was received'
+    : incident.classificationFailed
+      ? 'unverified: image/audio could not be classified'
+      : undefined;
+  return prune({
+    crisisType: incident.crisisType,
+    severityScore: incident.severityScore,
+    severityTier: severityTier(incident.severityScore),
+    status: incident.status,
+    sceneStatus,
+    callerDevice: isStealth(incident) ? 'stealth mode: no calls, texts or audible/visible alerts' : undefined,
+    building: building ? prune({ name: building.name, type: building.type, floors: building.floors }) : undefined,
+    callersInBuilding: building ? 1 + otherCallers.length : undefined,
+    gpsAccuracyMetres: incident.gps?.accuracy,
+    // ---- sources ----
+    buildingNotes: building?.notes,
+    callerProfile: callerProfile(incident),
+    perception: prune({ sceneSummary: incident.sceneSummary, cues: incident.cues }),
+    triage: prune({ dispatcherBrief: incident.dispatcherBrief, reasons: incident.reasons }),
+    timeline: timelineFacts(incident, now),
+    otherCallers: otherCallers.length
+      ? otherCallers.map((o) => ({
+          crisisType: o.crisisType,
+          severityScore: o.severityScore,
+          minutesAgo: minutesSince(o.createdAt, now),
+          summary: o.summary,
+        }))
+      : undefined,
+  });
+}
 
-  const cautions = [
-    ...(unverified ? ['Scene unverified: no image or audio classification'] : []),
-    ...(isStealth(incident) ? ['Caller device in stealth mode; do not call back'] : []),
-    // The ICE profile is the caller's, who may not be the person in distress.
-    ...ice.allergies.map((a) => `Caller allergy: ${a}`),
-    ...ice.conditions.map((c) => `Caller condition: ${c}`),
-    ...ice.medications.map((m) => `Caller medication: ${m}`),
-    ...(building?.notes ? [clip(`Building: ${building.notes}`)] : []),
+/** Sources that actually exist in these facts; items citing anything else are dropped. */
+export function availableSources(facts: ReturnType<typeof planFacts>): Set<PlanSource> {
+  const present = (v: unknown) => v !== undefined && !(typeof v === 'object' && v !== null && Object.keys(v).length === 0);
+  return new Set(PLAN_SOURCES.filter((s) => present(facts[s])));
+}
+
+/**
+ * One line on everything open in the building plus this incident's timeline: callers, minutes
+ * since first alert, trend, signal loss. Undefined with one caller and one update.
+ */
+export function situationLine(incident: PlanIncident, building: PlanBuilding | null, otherCallers: OtherCaller[], now = Date.now()) {
+  const tl = incident.timeline ?? [];
+  const updates = Math.max(tl.length, incident.updateCount ?? 0, 1);
+  const callers = 1 + otherCallers.length;
+  if (callers === 1 && updates <= 1 && !incident.escalated) return undefined;
+
+  const firstAlert = [tl[0]?.ts ?? incident.createdAt, ...otherCallers.map((o) => o.createdAt)].sort()[0];
+  const parts = [
+    callers > 1 ? `${callers} callers${building ? ` in ${building.name}` : ''}` : undefined,
+    `first alert ${minutesSince(firstAlert, now)} min ago`,
+    updates > 1 ? `${updates} updates${tl.length > 1 ? ` (severity ${tl.map((t) => t.severityScore).join('→')})` : ''}` : undefined,
+    incident.trend && incident.trend !== 'new' ? incident.trend : undefined,
+    incident.escalated
+      ? `signal lost${incident.lastSeenAt ? ` ${minutesSince(incident.lastSeenAt, now)} min ago` : ''}`
+      : undefined,
   ];
+  return parts.filter(Boolean).join(' · ');
+}
 
-  const unknowns = [
-    ...(building ? ['Exact location inside the building'] : ['Exact location']),
-    'Number of people involved',
-    "Caller's current condition",
-    ...(otherOpenInBuilding > 0 ? [`How ${otherOpenInBuilding} other open call(s) here relate to this one`] : []),
-  ];
+// ---- validation ----------------------------------------------------------------------------------
 
-  if (tier === 'low') {
-    return {
-      units: [],
-      approach: 'Flag for review; no dispatch unless review confirms an emergency.',
-      equipment: [],
-      cautions,
-      firstActions: [
-        'Review incident details and location',
-        ...(isStealth(incident) ? [] : ['Attempt contact through the app']),
-        'Dispatch only if new information confirms an emergency',
-      ],
-      unknowns,
-    };
-  }
+export type ValidatedPlan = { plan: ResponsePlan; shortened: number; dropped: string[] };
 
-  const types = UNIT_TYPES_FOR[tier][incident.crisisType];
-  const where = building ? clip(`Confirm access to ${building.name}`) : 'Confirm the caller location from GPS';
+/**
+ * Checks parsed model output. Structural problems (missing radio brief, lists that are not
+ * lists) reject the plan. Individual items are dropped, not the plan, when their source is
+ * not in the input, they are generic, they claim the scene is verified, they would expose a
+ * caller in stealth mode, or they exceed the per-list limit. Long items are shortened.
+ */
+export function validatePlan(
+  value: unknown,
+  sources: Set<PlanSource>,
+  opts: { stealth: boolean; unverified: boolean },
+): ValidatedPlan | { problems: string[] } {
+  if (typeof value !== 'object' || value === null) return { problems: ['not an object'] };
+  const v = value as Record<string, unknown>;
+  const problems: string[] = [];
+  if (!isText(v.radioBrief)) problems.push('radioBrief is missing');
+  for (const key of ['risks', 'actions', 'unknowns'] as const) if (!Array.isArray(v[key])) problems.push(`${key} is not a list`);
+  if (problems.length) return { problems };
+
+  let shortened = 0;
+  const dropped: string[] = [];
+  const fit = (s: string, limit = MAX_WORDS) => {
+    const r = shorten(s, limit);
+    if (r.cut) shortened++;
+    return r.text;
+  };
+
+  const items = (key: 'risks' | 'actions', max: number): PlanItem[] => {
+    const kept: PlanItem[] = [];
+    for (const raw of v[key] as unknown[]) {
+      const item = (raw ?? {}) as Record<string, unknown>;
+      const text = isText(item.text) ? item.text.trim() : '';
+      const source = item.source as PlanSource;
+      const why = !text
+        ? 'empty'
+        : !PLAN_SOURCES.includes(source)
+          ? `unknown source "${String(item.source)}"`
+          : !sources.has(source)
+            ? `source "${source}" not in input`
+            : GENERIC.test(text)
+              ? 'generic'
+              : CLAIMS_VERIFIED.test(text) || (!opts.unverified && MENTIONS_VERIFICATION.test(text))
+                ? 'verification claim'
+                : opts.stealth && contactsCaller(text)
+                  ? 'contacts stealth caller'
+                  : kept.length >= max
+                    ? `over ${max}`
+                    : null;
+      if (why) dropped.push(`${key}: ${why}: ${text.slice(0, 80)}`);
+      else kept.push({ text: fit(text), source });
+    }
+    return kept;
+  };
+
+  // Radio brief: at most 2 sentences, without "verified" claims or stealth violations.
+  const briefSentences = sentences((v.radioBrief as string).trim()).filter((s) => {
+    const bad = CLAIMS_VERIFIED.test(s)
+      ? 'claims verified'
+      : !opts.unverified && MENTIONS_VERIFICATION.test(s)
+        ? 'mentions verification for a scene not marked unverified'
+        : opts.stealth && contactsCaller(s)
+          ? 'contacts stealth caller'
+          : null;
+    if (bad) dropped.push(`radioBrief: ${bad}: ${s.slice(0, 80)}`);
+    return !bad;
+  });
+  if (briefSentences.length === 0) return { problems: ['radioBrief had nothing usable'] };
+  if (briefSentences.length > MAX_BRIEF_SENTENCES) dropped.push(`radioBrief: over ${MAX_BRIEF_SENTENCES} sentences`);
+  const radioBrief = fit(briefSentences.slice(0, MAX_BRIEF_SENTENCES).join(' '), MAX_WORDS * 2);
+
+  const unknowns = (v.unknowns as unknown[]).filter(isText).map((s) => s.trim());
+  if (unknowns.length > MAX_UNKNOWNS) dropped.push(`unknowns: over ${MAX_UNKNOWNS}`);
+
   return {
-    units: types.map((type) => ({ type, reason: tierResponse })),
-    approach: APPROACH[incident.crisisType],
-    equipment: EQUIPMENT[incident.crisisType],
-    cautions,
-    firstActions: [
-      `Dispatch ${types.join(' and ')}`,
-      where,
-      unverified ? 'Treat the scene as unverified until units report' : 'Relay the dispatcher brief to responding units',
-      'Update units with any new caller information',
-    ],
-    unknowns,
+    plan: {
+      radioBrief,
+      risks: items('risks', MAX_RISKS),
+      actions: items('actions', MAX_ACTIONS),
+      unknowns: unknowns.slice(0, MAX_UNKNOWNS).map((s) => fit(s)),
+    },
+    shortened,
+    dropped,
+  };
+}
+
+// ---- rule-based fallback -------------------------------------------------------------------------
+
+const TYPE_WORDS: Record<PlanIncident['crisisType'], string> = {
+  ACTIVE_THREAT: 'Active threat',
+  MEDICAL_CRISIS: 'Medical emergency',
+  ENVIRONMENTAL_HAZARD: 'Environmental hazard',
+  UNKNOWN: 'Unclassified SOS',
+};
+
+/**
+ * Templated plan from facts already in the incident (no AI): a radio brief and the situation
+ * line. The panel shows it with the tier's recommended response, labelled rule-based.
+ */
+export function ruleBasedPlan(incident: PlanIncident, building: PlanBuilding | null, otherCallers: OtherCaller[]): ResponsePlan {
+  const callers = 1 + otherCallers.length;
+  const unverified = incident.lowBandwidth || incident.classificationFailed;
+  const first = `${TYPE_WORDS[incident.crisisType]} at ${building?.name ?? 'an unknown location'}, severity ${incident.severityScore}${
+    callers > 1 ? `, ${callers} callers` : ''
+  }.`;
+  const second = isStealth(incident)
+    ? 'Caller is hiding with the phone in stealth mode; do not call back.'
+    : unverified
+      ? 'Scene unverified: no image or audio received.'
+      : incident.escalated
+        ? 'Signal lost from the caller.'
+        : '';
+  return {
+    radioBrief: [first, second].filter(Boolean).join(' '),
+    situation: situationLine(incident, building, otherCallers),
+    risks: [],
+    actions: [],
+    unknowns: [],
   };
 }

@@ -3,7 +3,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { ruleBasedPlan } from '@/lib/responsePlan';
 import type { CrisisType, Incident } from '@/types/incident';
-import type { PlanBuilding, PlanIncident, PlanResponse, ResponsePlan } from '@/types/responsePlan';
+import type { OtherCaller, PlanBuilding, PlanIncident, PlanResponse, ResponsePlan } from '@/types/responsePlan';
 import { tierStyle } from './severity';
 
 export type PlanEntry =
@@ -16,6 +16,8 @@ export type PlanEntry =
       generatedAt: string;
       /** AI plans only: items the server cut to the word limit. */
       shortened?: number;
+      /** Fallback only: the tier's recommended response. */
+      recommended?: string;
       /** What the plan was generated from, to detect when it goes out of date. */
       basis: { severityScore: number; crisisType: CrisisType };
     }
@@ -24,31 +26,49 @@ export type PlanEntry =
 /** Severity at or above which plans are generated in the background. */
 export const PREFETCH_MIN_SEVERITY = 7;
 
-type Context = { building: PlanBuilding | null; otherOpenInBuilding: number };
+type Context = { building: PlanBuilding | null; otherCallers: OtherCaller[] };
 type Job = { incident: PlanIncident; context: Context; attempt: number };
 
 const basisKey = (i: Pick<Incident, 'severityScore' | 'crisisType'>) => `${i.severityScore}|${i.crisisType}`;
 
-/** The building and the count of other open incidents in it (matched by building name). */
+/**
+ * `?mock=1`: plans use the rule-based fallback and never call the API. Read when a request
+ * starts, not during render: during hydration a render-time read is still false, and the
+ * first background prefetch runs right after it.
+ */
+const isMockMode = () => typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('mock') === '1';
+
+/** The building and the other open incidents in it (matched by building name). */
 export function planContext(incident: Incident, all: Incident[]): Context {
   const b = incident.building;
   return {
     building: b ? { name: b.name, type: b.type, floors: b.floors, notes: b.notes } : null,
-    otherOpenInBuilding: b
-      ? all.filter((i) => i._id !== incident._id && i.status !== 'RESOLVED' && i.building?.name === b.name).length
-      : 0,
+    otherCallers: b
+      ? all
+          .filter((i) => i._id !== incident._id && i.status !== 'RESOLVED' && i.building?.name === b.name)
+          .map((i) => ({
+            crisisType: i.crisisType,
+            severityScore: i.severityScore,
+            status: i.status,
+            createdAt: i.createdAt,
+            summary: i.sceneSummary ?? i.dispatcherBrief,
+          }))
+      : [],
   };
 }
 
 /**
- * Response plans kept in memory per incident id.
+ * Response plans and action tick state, kept in memory per incident id. Both live outside the
+ * incident list, so polling refreshes that replace incidents don't reset them.
  * - `generate`: on demand (button or G), any severity.
  * - `prefetch`: background generation for severity ≥ 7 incidents when they first appear or
  *   their severity / crisis type changes. One request at a time, highest severity first, at
  *   most one automatic retry. Never call it from inside the polling fetch itself.
  */
-export function useResponsePlans(mock: boolean) {
+export function useResponsePlans() {
   const [plans, setPlans] = useState<Record<string, PlanEntry>>({});
+  /** incident id → texts of ticked actions (by text, so a regenerated plan keeps matching ticks). */
+  const [ticks, setTicks] = useState<Record<string, string[]>>({});
   const inFlight = useRef(new Set<string>());
   /** Basis (severity|type) each incident was last generated or queued for. */
   const handled = useRef(new Map<string, string>());
@@ -57,7 +77,7 @@ export function useResponsePlans(mock: boolean) {
 
   /** One generation. Resolves to whether it may be worth one automatic retry. */
   const run = useCallback(
-    async (incident: PlanIncident, { building, otherOpenInBuilding }: Context, background: boolean): Promise<'done' | 'retryable'> => {
+    async (incident: PlanIncident, { building, otherCallers }: Context, background: boolean): Promise<'done' | 'retryable'> => {
       const id = incident._id;
       if (inFlight.current.has(id)) return 'done';
       handled.current.set(id, basisKey(incident));
@@ -65,13 +85,14 @@ export function useResponsePlans(mock: boolean) {
       const basis = { severityScore: incident.severityScore, crisisType: incident.crisisType };
       const fallback = (): PlanEntry => ({
         status: 'ready',
-        plan: ruleBasedPlan(incident, building, otherOpenInBuilding, tierStyle(incident.severityScore).response),
+        plan: ruleBasedPlan(incident, building, otherCallers),
         source: 'fallback',
+        recommended: tierStyle(incident.severityScore).response,
         generatedAt: new Date().toISOString(),
         basis,
       });
 
-      if (mock) {
+      if (isMockMode()) {
         set(fallback());
         return 'done';
       }
@@ -82,7 +103,7 @@ export function useResponsePlans(mock: boolean) {
         const res = await fetch('/api/response-plan', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ incident, building, otherOpenInBuilding }),
+          body: JSON.stringify({ incident, building, otherCallers }),
         });
         const body = (await res.json()) as PlanResponse;
         if (body.ok) {
@@ -103,7 +124,7 @@ export function useResponsePlans(mock: boolean) {
         inFlight.current.delete(id);
       }
     },
-    [mock],
+    [],
   );
 
   const generate = useCallback(
@@ -149,5 +170,13 @@ export function useResponsePlans(mock: boolean) {
     [pump],
   );
 
-  return { plans, generate, prefetch };
+  const toggleTick = useCallback((incidentId: string, action: string) => {
+    setTicks((prev) => {
+      const current = prev[incidentId] ?? [];
+      const next = current.includes(action) ? current.filter((a) => a !== action) : [...current, action];
+      return { ...prev, [incidentId]: next };
+    });
+  }, []);
+
+  return { plans, generate, prefetch, ticks, toggleTick };
 }

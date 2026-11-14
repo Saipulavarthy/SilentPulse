@@ -1,4 +1,4 @@
-// POST /api/response-plan: drafts a response plan for one incident with Gemini.
+// POST /api/response-plan: drafts a dispatcher's working notes for one incident with Gemini.
 //
 // Only POST is exported. Non-GET route handlers are never cached or prerendered, and with
 // Cache Components on, `dynamic` / `runtime` segment configs must not be used. Responses
@@ -12,8 +12,17 @@ import {
   type GenerationConfig,
   type ResponseSchema,
 } from '@google/generative-ai';
-import { MAX_FIRST_ACTIONS, isStealth, planFacts, stealthViolations, validatePlan } from '@/lib/responsePlan';
-import { UNIT_TYPES, type PlanErrorCode, type PlanRequest, type PlanResponse } from '@/types/responsePlan';
+import {
+  MAX_ACTIONS,
+  MAX_RISKS,
+  MAX_UNKNOWNS,
+  availableSources,
+  isStealth,
+  planFacts,
+  situationLine,
+  validatePlan,
+} from '@/lib/responsePlan';
+import { PLAN_SOURCES, type PlanErrorCode, type PlanRequest, type PlanResponse } from '@/types/responsePlan';
 
 const TIMEOUT_MS = 30_000;
 /** Lets the platform (e.g. Vercel) run this function past the 30 s Gemini timeout, so it can still answer 504. */
@@ -26,36 +35,40 @@ const DEFAULT_MODEL = 'gemini-3.5-flash-lite';
  */
 const DEFAULT_THINKING_LEVEL = 'minimal';
 
-const SYSTEM_PROMPT = `You draft response plans for a campus emergency dispatcher; a human reviews every plan.
-1. Use only facts in the input. Never invent floors, rooms, suspects, weapons, injuries, people counts, unit names or unit numbers. Anything needed but missing goes in "unknowns".
-2. If sceneVerified is false, say in "approach" that the scene is unverified and add a caution.
-3. If severityTier is "low": recommend review, not dispatch; "units" is empty; the first action is reviewing the alert.
-4. callerMedicalProfile belongs to the caller (whose phone sent the SOS). Apply it to the person in distress only if the brief and sceneSummary do not indicate someone else. Otherwise call it "caller's profile", never apply it to the other person, and add "Patient's medical history" to "unknowns". Never call the caller "patient" unless they are clearly the one in distress.
-5. If callerDevice is present (stealth mode), never suggest calling, texting, messaging or alerting the caller, or anything that makes their phone ring, vibrate, light up or sound; add a stealth-mode caution.
-6. Cautions come only from building notes, callerMedicalProfile, callerDevice and explicit statements in the brief or sceneSummary. Always include the caller's conditions, allergies and medications as cautions, labelled as the caller's.
-7. At most ${MAX_FIRST_ACTIONS} firstActions, in order. Every item and unit reason under 20 words; "approach" one or two short sentences.`;
+const SYSTEM_PROMPT = `You turn one incident's data into a campus dispatcher's working notes. Be specific to THIS incident; the dispatcher already knows standard procedure.
+Output:
+- radioBrief: at most 2 short sentences of plain spoken English to read over the radio: what is happening, where (building name), how many callers, and the key hazard. No IDs, no jargon.
+- risks: at most ${MAX_RISKS}, most important first. A risk is something that could go wrong or slow the response, not a description of the scene.
+- actions: at most ${MAX_ACTIONS} imperative steps, in order.
+- unknowns: at most ${MAX_UNKNOWNS} short questions the dispatcher still needs answered, most important first.
+Rules:
+1. Every risk and action must come from one specific fact in the input and set "source" to the input key it came from: buildingNotes, callerProfile, perception, triage, timeline or otherCallers.
+2. Leave out anything that would apply to any incident of this type: protective gear, radios, perimeters, staging, "use caution", "dispatch units". Fewer items is better than generic ones.
+3. Use only the input. Never invent floors, rooms, suspects, weapons, injuries, people counts or unit names; put what is missing in unknowns.
+4. If sceneStatus is present, include it in radioBrief.
+5. If severityTier is "low", the first action is to review the alert; recommend review, not dispatch.
+6. callerProfile belongs to the caller (whose phone sent the SOS). Use it for the person in distress only if triage and perception do not indicate someone else; otherwise call it the caller's and ask about the patient's history in unknowns. Never call the caller "patient" unless they are clearly the one in distress. Mention the profile only if it changes what responders do.
+7. If callerDevice is present (stealth mode), never suggest calling, texting, messaging or alerting the caller, or anything that makes their phone ring, vibrate, light up or sound.
+8. Each risk, action and unknown under 20 words.`;
+
+const ITEM: ResponseSchema = {
+  type: SchemaType.OBJECT,
+  properties: {
+    text: { type: SchemaType.STRING },
+    source: { type: SchemaType.STRING, format: 'enum', enum: [...PLAN_SOURCES] },
+  },
+  required: ['text', 'source'],
+};
 
 const SCHEMA: ResponseSchema = {
   type: SchemaType.OBJECT,
   properties: {
-    units: {
-      type: SchemaType.ARRAY,
-      items: {
-        type: SchemaType.OBJECT,
-        properties: {
-          type: { type: SchemaType.STRING, format: 'enum', enum: [...UNIT_TYPES] },
-          reason: { type: SchemaType.STRING },
-        },
-        required: ['type', 'reason'],
-      },
-    },
-    approach: { type: SchemaType.STRING },
-    equipment: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
-    cautions: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
-    firstActions: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING }, maxItems: MAX_FIRST_ACTIONS },
-    unknowns: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
+    radioBrief: { type: SchemaType.STRING },
+    risks: { type: SchemaType.ARRAY, items: ITEM, maxItems: MAX_RISKS },
+    actions: { type: SchemaType.ARRAY, items: ITEM, maxItems: MAX_ACTIONS },
+    unknowns: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING }, maxItems: MAX_UNKNOWNS },
   },
-  required: ['units', 'approach', 'equipment', 'cautions', 'firstActions', 'unknowns'],
+  required: ['radioBrief', 'risks', 'actions', 'unknowns'],
 };
 
 const STATUS: Record<PlanErrorCode, number> = {
@@ -76,13 +89,16 @@ function reply(body: PlanResponse): Response {
 
 const fail = (error: PlanErrorCode, message: string) => reply({ ok: false, error, message });
 
+/** Accepts both the current dashboard Incident and main's (optional gps, nullable iceProfile). */
 function parseRequest(body: unknown): PlanRequest | null {
   const b = body as Partial<PlanRequest> | null;
   const i = b?.incident;
   if (!i || typeof i._id !== 'string' || typeof i.severityScore !== 'number' || typeof i.crisisType !== 'string') return null;
-  if (!i.iceProfile || !i.gps || typeof i.dispatcherBrief !== 'string') return null;
-  const other = Number(b?.otherOpenInBuilding ?? 0);
-  return { incident: i, building: b?.building ?? null, otherOpenInBuilding: Number.isFinite(other) && other >= 0 ? other : 0 };
+  if (typeof i.dispatcherBrief !== 'string' || typeof i.createdAt !== 'string') return null;
+  const otherCallers = Array.isArray(b?.otherCallers)
+    ? b.otherCallers.filter((o) => o && typeof o.createdAt === 'string' && typeof o.severityScore === 'number')
+    : [];
+  return { incident: { ...i, iceProfile: i.iceProfile ?? null }, building: b?.building ?? null, otherCallers };
 }
 
 export async function POST(request: Request): Promise<Response> {
@@ -92,7 +108,7 @@ export async function POST(request: Request): Promise<Response> {
   } catch {
     input = null;
   }
-  if (!input) return fail('bad_request', 'Body must be { incident, building, otherOpenInBuilding } with a valid incident.');
+  if (!input) return fail('bad_request', 'Body must be { incident, building, otherCallers } with a valid incident.');
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return fail('missing_key', 'GEMINI_API_KEY is not set on the server.');
@@ -110,7 +126,7 @@ export async function POST(request: Request): Promise<Response> {
     { model: modelName, systemInstruction: SYSTEM_PROMPT, generationConfig },
     { timeout: TIMEOUT_MS },
   );
-  const facts = planFacts(input.incident, input.building, input.otherOpenInBuilding);
+  const facts = planFacts(input.incident, input.building, input.otherCallers);
 
   let text: string;
   try {
@@ -139,17 +155,17 @@ export async function POST(request: Request): Promise<Response> {
   } catch {
     return fail('invalid_output', 'Gemini returned output that is not valid JSON.');
   }
-  const checked = validatePlan(parsed);
+  // Drops items with a source missing from the input, generic advice, "verified" claims and
+  // anything that would expose a caller in stealth mode; rejects only structurally broken output.
+  const checked = validatePlan(parsed, availableSources(facts), {
+    stealth: isStealth(input.incident),
+    unverified: input.incident.lowBandwidth || Boolean(input.incident.classificationFailed),
+  });
   if ('problems' in checked) {
     return fail('invalid_output', `Gemini output did not match the plan format: ${checked.problems.slice(0, 3).join('; ')}.`);
   }
-  // Safety net behind rule 5: never show a plan that would expose a hiding caller.
-  if (isStealth(input.incident)) {
-    const unsafe = stealthViolations(checked.plan);
-    if (unsafe.length) {
-      return fail('invalid_output', `Gemini suggested contacting a caller in stealth mode ("${unsafe[0]}"); plan withheld.`);
-    }
-  }
+  // Exact counts and times come from the input, not the model.
+  checked.plan.situation = situationLine(input.incident, input.building, input.otherCallers);
 
   return reply({
     ok: true,
@@ -157,5 +173,6 @@ export async function POST(request: Request): Promise<Response> {
     model: modelName,
     generatedAt: new Date().toISOString(),
     shortened: checked.shortened,
+    dropped: checked.dropped,
   });
 }

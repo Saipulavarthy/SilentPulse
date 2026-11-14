@@ -8,7 +8,7 @@ import {
   tierStyle,
   typeLabel,
 } from './severity';
-import { ResponsePlanSection } from './ResponsePlanSection';
+import { ResponsePlanSection, type CopyState } from './ResponsePlanSection';
 import { SeveritySquare } from './SeveritySquare';
 import { FOCUS_RING, LABEL, MONO } from './ui';
 import type { PlanEntry } from './useResponsePlans';
@@ -20,9 +20,24 @@ type Props = {
   onResolve: () => void;
   plan: PlanEntry | undefined;
   onGeneratePlan: () => void;
+  ticked: string[];
+  onToggleTick: (action: string) => void;
+  onCopyBrief: () => void;
+  copyState: CopyState;
 };
 
-export function IncidentDetail({ incident, now, onAcknowledge, onResolve, plan, onGeneratePlan }: Props) {
+export function IncidentDetail({
+  incident,
+  now,
+  onAcknowledge,
+  onResolve,
+  plan,
+  onGeneratePlan,
+  ticked,
+  onToggleTick,
+  onCopyBrief,
+  copyState,
+}: Props) {
   if (!incident) {
     return (
       <section className="flex min-h-0 items-center justify-center border-l border-neutral-800 text-neutral-600">
@@ -60,7 +75,16 @@ export function IncidentDetail({ incident, now, onAcknowledge, onResolve, plan, 
           <p className="text-neutral-100">{t.response}</p>
         </Section>
 
-        <ResponsePlanSection incident={incident} entry={plan} onGenerate={onGeneratePlan} now={now} />
+        <ResponsePlanSection
+          incident={incident}
+          entry={plan}
+          onGenerate={onGeneratePlan}
+          now={now}
+          ticked={ticked}
+          onToggleTick={onToggleTick}
+          onCopy={onCopyBrief}
+          copyState={copyState}
+        />
 
         {(incident.crisisType === 'ACTIVE_THREAT' || incident.lowBandwidth) && (
           <div className="space-y-2 border-b border-neutral-800 px-4 py-3">

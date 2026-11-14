@@ -1,7 +1,10 @@
 import type { ReactNode } from 'react';
 import type { Incident } from '@/types/incident';
+import type { PlanItem, PlanSource } from '@/types/responsePlan';
 import { FOCUS_RING, LABEL, MONO } from './ui';
 import type { PlanEntry } from './useResponsePlans';
+
+export type CopyState = 'copied' | 'failed' | null;
 
 type Props = {
   incident: Incident;
@@ -9,6 +12,20 @@ type Props = {
   onGenerate: () => void;
   /** Page clock (ms), for the elapsed time while generating. */
   now: number | null;
+  /** Action texts ticked for this incident. */
+  ticked: string[];
+  onToggleTick: (action: string) => void;
+  onCopy: () => void;
+  copyState: CopyState;
+};
+
+const SOURCE_LABEL: Record<PlanSource, string> = {
+  buildingNotes: 'building',
+  callerProfile: 'caller profile',
+  perception: 'perception',
+  triage: 'triage',
+  timeline: 'timeline',
+  otherCallers: 'other callers',
 };
 
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -17,14 +34,16 @@ const clock = (iso: string) => {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 };
 
-export function ResponsePlanSection({ incident, entry, onGenerate, now }: Props) {
+export function ResponsePlanSection({ incident, entry, onGenerate, now, ticked, onToggleTick, onCopy, copyState }: Props) {
   return (
     <section className="border-b border-neutral-800 px-4 py-3" aria-label="Response plan" aria-busy={entry?.status === 'loading'}>
       <h3 className={`${LABEL} mb-2`}>Response plan</h3>
       {!entry && (
         <div className="flex items-center justify-between gap-3">
-          <p className="text-neutral-500">Draft a plan from this incident&apos;s facts.</p>
-          <PlanButton onClick={onGenerate}>Generate plan</PlanButton>
+          <p className="text-neutral-500">Draft notes from this incident&apos;s facts.</p>
+          <PlanButton onClick={onGenerate} shortcut="G">
+            Generate plan
+          </PlanButton>
         </div>
       )}
       {entry?.status === 'loading' && (
@@ -42,10 +61,22 @@ export function ResponsePlanSection({ incident, entry, onGenerate, now }: Props)
             <span className={`${LABEL} mr-2 text-neutral-400`}>Error</span>
             {entry.message}
           </p>
-          <PlanButton onClick={onGenerate}>Retry</PlanButton>
+          <PlanButton onClick={onGenerate} shortcut="G">
+            Retry
+          </PlanButton>
         </div>
       )}
-      {entry?.status === 'ready' && <ReadyPlan incident={incident} entry={entry} onGenerate={onGenerate} />}
+      {entry?.status === 'ready' && (
+        <ReadyPlan
+          incident={incident}
+          entry={entry}
+          onGenerate={onGenerate}
+          ticked={ticked}
+          onToggleTick={onToggleTick}
+          onCopy={onCopy}
+          copyState={copyState}
+        />
+      )}
     </section>
   );
 }
@@ -54,12 +85,21 @@ function ReadyPlan({
   incident,
   entry,
   onGenerate,
+  ticked,
+  onToggleTick,
+  onCopy,
+  copyState,
 }: {
   incident: Incident;
   entry: Extract<PlanEntry, { status: 'ready' }>;
   onGenerate: () => void;
+  ticked: string[];
+  onToggleTick: (action: string) => void;
+  onCopy: () => void;
+  copyState: CopyState;
 }) {
   const { plan } = entry;
+  const ai = entry.source === 'ai';
   const outOfDate =
     entry.basis.severityScore !== incident.severityScore || entry.basis.crisisType !== incident.crisisType;
 
@@ -67,8 +107,8 @@ function ReadyPlan({
     <div className="space-y-3">
       <div className={`flex items-center justify-between gap-2 ${MONO} text-[11px] text-neutral-500`}>
         <span>
-          {entry.source === 'ai' ? 'AI draft (Gemini) · verify before acting' : 'Rule-based fallback (no AI)'}
-          {entry.shortened ? ` · ${entry.shortened} item${entry.shortened === 1 ? '' : 's'} shortened` : ''}
+          {ai ? 'AI draft (Gemini) · verify before acting' : 'Rule-based (no AI)'}
+          {entry.shortened ? ` · ${entry.shortened} shortened` : ''}
         </span>
         <span>{clock(entry.generatedAt)}</span>
       </div>
@@ -78,93 +118,113 @@ function ReadyPlan({
             <span className={`${LABEL} mr-2 text-neutral-400`}>Out of date</span>
             Severity or type changed since this plan.
           </span>
-          <PlanButton onClick={onGenerate}>Regenerate</PlanButton>
+          <PlanButton onClick={onGenerate} shortcut="G">
+            Regenerate
+          </PlanButton>
         </div>
       )}
 
-      <div className={outOfDate ? 'opacity-50' : undefined}>
-        {plan.units.length > 0 && entry.source === 'fallback' ? (
-          // Fallback: unit types only (no counts: it follows no real protocol), plus the tier's text.
-          <div>
-            <div className="mb-0.5 text-[11px] text-neutral-500">Unit types</div>
-            <p className="text-neutral-100">{plan.units.map((u) => u.type).join(' · ')}</p>
-            <p className="text-neutral-300">{plan.units[0].reason}</p>
+      <div className={`space-y-3 ${outOfDate ? 'opacity-50' : ''}`}>
+        <div className="rounded-[2px] border border-neutral-800 bg-neutral-900/60 px-3 py-2">
+          <div className="mb-1 flex items-center justify-between gap-2">
+            <span className="text-[11px] text-neutral-500">Radio brief</span>
+            <PlanButton onClick={onCopy} shortcut="C" compact>
+              {copyState === 'copied' ? 'Copied' : copyState === 'failed' ? 'Copy failed' : 'Copy'}
+            </PlanButton>
           </div>
-        ) : plan.units.length > 0 ? (
-          <table className="w-full table-fixed text-left">
-            <thead>
-              <tr className={LABEL}>
-                <th className="w-[64px] pb-1 font-medium">Unit</th>
-                <th className="pb-1 pl-3 font-medium">Reason</th>
-              </tr>
-            </thead>
-            <tbody>
-              {plan.units.map((u, i) => (
-                <tr key={`${u.type}-${i}`} className="border-t border-neutral-900 align-top">
-                  <td className="py-1 text-neutral-100">{u.type}</td>
-                  <td className="py-1 pl-3 text-neutral-300">{u.reason}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : (
-          <p className="text-neutral-300">No units: review before dispatch.</p>
+          <p className="text-[14px] leading-snug text-neutral-50">{plan.radioBrief}</p>
+        </div>
+
+        {plan.situation && <p className={`${MONO} text-[11px] leading-snug text-neutral-400`}>{plan.situation}</p>}
+
+        {!ai && entry.recommended && (
+          <Block title="Recommended response">
+            <p className="text-neutral-200">{entry.recommended}</p>
+          </Block>
         )}
 
-        <PlanBlock title="Approach">
-          <p className="text-neutral-200">{plan.approach}</p>
-        </PlanBlock>
-        <PlanList title="Equipment" items={plan.equipment} />
-        <PlanList title="Cautions" items={plan.cautions} />
-        <PlanBlock title="First actions">
-          {plan.firstActions.length ? (
-            <ol className="space-y-0.5">
-              {plan.firstActions.map((a, i) => (
-                <li key={i} className="flex gap-2 text-neutral-200">
-                  <span className={`${MONO} text-neutral-500`}>{i + 1}.</span>
-                  <span>{a}</span>
+        {ai && (
+          <Block title="Risks">
+            {plan.risks.length ? (
+              <ul className="list-none space-y-1 p-0">
+                {plan.risks.map((r, i) => (
+                  <li key={i} className="flex items-baseline justify-between gap-3">
+                    <span className="text-neutral-200">{r.text}</span>
+                    <SourceTag source={r.source} />
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <None />
+            )}
+          </Block>
+        )}
+
+        {ai && (
+          <Block title="Actions">
+            {plan.actions.length ? (
+              <ul className="list-none space-y-1 p-0">
+                {plan.actions.map((a) => (
+                  <Action key={a.text} item={a} done={ticked.includes(a.text)} onToggle={() => onToggleTick(a.text)} />
+                ))}
+              </ul>
+            ) : (
+              <None />
+            )}
+          </Block>
+        )}
+
+        {ai && plan.unknowns.length > 0 && (
+          <Block title="Unknowns">
+            <ul className="flex list-none flex-wrap gap-1.5 p-0">
+              {plan.unknowns.map((q) => (
+                <li key={q} className="rounded-[2px] border border-neutral-700 px-1.5 py-0.5 text-[12px] text-neutral-300">
+                  {q}
                 </li>
               ))}
-            </ol>
-          ) : (
-            <None />
-          )}
-        </PlanBlock>
-        <PlanList title="Unknowns" items={plan.unknowns} />
+            </ul>
+          </Block>
+        )}
       </div>
     </div>
   );
 }
 
-function PlanBlock({ title, children }: { title: string; children: ReactNode }) {
+function Action({ item, done, onToggle }: { item: PlanItem; done: boolean; onToggle: () => void }) {
   return (
-    <div className="mt-2.5">
-      <div className="mb-0.5 text-[11px] text-neutral-500">{title}</div>
+    <li className="flex items-baseline justify-between gap-3">
+      <label className="flex cursor-pointer items-baseline gap-2">
+        <input
+          type="checkbox"
+          checked={done}
+          onChange={onToggle}
+          className={`relative top-[2px] h-3.5 w-3.5 shrink-0 accent-sky-400 ${FOCUS_RING}`}
+        />
+        <span className={done ? 'text-neutral-500 line-through' : 'text-neutral-200'}>{item.text}</span>
+      </label>
+      <SourceTag source={item.source} />
+    </li>
+  );
+}
+
+function SourceTag({ source }: { source: PlanSource }) {
+  return (
+    <span className={`shrink-0 rounded-[2px] border border-neutral-700 px-1 text-[10px] whitespace-nowrap text-neutral-500 uppercase ${MONO}`}>
+      {SOURCE_LABEL[source]}
+    </span>
+  );
+}
+
+function Block({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div>
+      <div className="mb-1 text-[11px] text-neutral-500">{title}</div>
       {children}
     </div>
   );
 }
 
-function PlanList({ title, items }: { title: string; items: string[] }) {
-  return (
-    <PlanBlock title={title}>
-      {items.length ? (
-        <ul className="space-y-0.5">
-          {items.map((item, i) => (
-            <li key={i} className="flex gap-2 text-neutral-200">
-              <span className="text-neutral-600">–</span>
-              <span>{item}</span>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <None />
-      )}
-    </PlanBlock>
-  );
-}
-
-const None = () => <span className="text-neutral-600">None</span>;
+const None = () => <span className="text-neutral-600">Nothing specific in the input.</span>;
 
 function Skeleton() {
   return (
@@ -176,16 +236,28 @@ function Skeleton() {
   );
 }
 
-function PlanButton({ onClick, children }: { onClick: () => void; children: ReactNode }) {
+function PlanButton({
+  onClick,
+  shortcut,
+  compact = false,
+  children,
+}: {
+  onClick: () => void;
+  shortcut: string;
+  compact?: boolean;
+  children: ReactNode;
+}) {
   return (
     <button
       type="button"
       onClick={onClick}
-      aria-keyshortcuts="G"
-      className={`flex h-7 shrink-0 items-center gap-2 rounded-[2px] border border-neutral-700 bg-neutral-900 px-2.5 text-neutral-100 hover:bg-neutral-800 ${FOCUS_RING}`}
+      aria-keyshortcuts={shortcut}
+      className={`flex shrink-0 items-center gap-2 rounded-[2px] border border-neutral-700 bg-neutral-900 text-neutral-100 hover:bg-neutral-800 ${
+        compact ? 'h-6 px-2 text-[12px]' : 'h-7 px-2.5'
+      } ${FOCUS_RING}`}
     >
       {children}
-      <kbd className={`${MONO} rounded-[2px] border border-current/30 px-1 text-[11px] text-neutral-500`}>G</kbd>
+      <kbd className={`${MONO} rounded-[2px] border border-current/30 px-1 text-[11px] text-neutral-500`}>{shortcut}</kbd>
     </button>
   );
 }

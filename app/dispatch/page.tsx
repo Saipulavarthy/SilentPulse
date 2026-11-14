@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useEffectEvent, useMemo, useState, useSyncExternalStore } from 'react';
+import { useEffect, useEffectEvent, useMemo, useState } from 'react';
 import type { Incident, IncidentStatus } from '@/types/incident';
 import { IncidentDetail } from '@/components/dispatch/IncidentDetail';
 import { IncidentQueue } from '@/components/dispatch/IncidentQueue';
@@ -8,16 +8,9 @@ import { MapPanel } from '@/components/dispatch/MapPanel';
 import { TopBar } from '@/components/dispatch/TopBar';
 import { FILTERS, applyFilter, type QueueFilter } from '@/components/dispatch/severity';
 import { useClock } from '@/components/dispatch/useClock';
+import type { CopyState } from '@/components/dispatch/ResponsePlanSection';
 import { planContext, useResponsePlans } from '@/components/dispatch/useResponsePlans';
 import { mockIncidents } from './mockIncidents';
-
-/** `?mock=1`: response plans use the rule-based fallback and never call the API. */
-const useMockFlag = () =>
-  useSyncExternalStore(
-    () => () => {},
-    () => new URLSearchParams(window.location.search).get('mock') === '1',
-    () => false,
-  );
 
 export default function DispatchPage() {
   // Mock data only until the API is ready. Status changes are local state.
@@ -34,7 +27,27 @@ export default function DispatchPage() {
     [incidents],
   );
   const selected = incidents.find((i) => i._id === selectedId) ?? null;
-  const { plans, generate, prefetch } = useResponsePlans(useMockFlag());
+  const { plans, generate, prefetch, ticks, toggleTick } = useResponsePlans();
+  const [copied, setCopied] = useState<{ id: string; state: CopyState } | null>(null);
+
+  /** Copies the selected incident's radio brief (button or C). */
+  async function copyBrief() {
+    const entry = selected ? plans[selected._id] : undefined;
+    if (!selected || entry?.status !== 'ready') return;
+    const id = selected._id;
+    try {
+      await navigator.clipboard.writeText(entry.plan.radioBrief);
+      setCopied({ id, state: 'copied' });
+    } catch {
+      setCopied({ id, state: 'failed' });
+    }
+  }
+
+  useEffect(() => {
+    if (!copied) return;
+    const t = setTimeout(() => setCopied(null), 1500);
+    return () => clearTimeout(t);
+  }, [copied]);
 
   /** On demand (button or G): plan for the selected incident, any severity. */
   function generatePlan() {
@@ -103,6 +116,9 @@ export default function DispatchPage() {
       case 'g':
         generatePlan();
         break;
+      case 'c':
+        void copyBrief();
+        break;
     }
   });
 
@@ -132,6 +148,10 @@ export default function DispatchPage() {
           onResolve={() => setStatus('RESOLVED')}
           plan={selected ? plans[selected._id] : undefined}
           onGeneratePlan={generatePlan}
+          ticked={selected ? (ticks[selected._id] ?? []) : []}
+          onToggleTick={(action) => selected && toggleTick(selected._id, action)}
+          onCopyBrief={() => void copyBrief()}
+          copyState={copied && copied.id === selected?._id ? copied.state : null}
         />
       </main>
     </>

@@ -1,4 +1,5 @@
 import type { Incident } from '@/types/incident';
+import type { PlanIceProfile, PlanIncident } from '@/types/responsePlan';
 
 // MOCK DATA: every person, user ID, phone number, medical detail and event below is
 // fictional. Phone numbers use the reserved 555-01xx range. GPS points sit inside the
@@ -8,7 +9,29 @@ import type { Incident } from '@/types/incident';
 
 const minsAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
 
-export const mockIncidents: Incident[] = [
+/**
+ * Fields the triage pipeline on main now sends (perception cues, triage reasons, timeline,
+ * signal loss, mobility/sensory notes). Our Incident type gains them when main is merged;
+ * until then the mocks carry them as extra fields.
+ */
+type MainFields = Pick<
+  PlanIncident,
+  'cues' | 'reasons' | 'trend' | 'timeline' | 'escalated' | 'escalationReason' | 'lastSeenAt' | 'updateCount'
+>;
+export type MockIncident = Omit<Incident, 'iceProfile'> &
+  MainFields & { iceProfile: Incident['iceProfile'] & Pick<PlanIceProfile, 'mobilityNotes' | 'sensoryNotes'> };
+
+const tick = (m: number, severityScore: number, crisisType: Incident['crisisType'], extra: { lowBandwidth?: boolean; sceneSummary?: string } = {}) => ({
+  ts: minsAgo(m),
+  crisisType,
+  severityScore,
+  gps: null,
+  lowBandwidth: extra.lowBandwidth ?? false,
+  classificationFailed: false,
+  sceneSummary: extra.sceneSummary,
+});
+
+export const mockIncidents: MockIncident[] = [
   {
     _id: 'mock-001',
     userId: 'user-ajames',
@@ -17,6 +40,20 @@ export const mockIncidents: Incident[] = [
     dispatcherBrief:
       'Caller reports armed individual inside Du Bois Library. Caller is hiding, silent. Dispatch UMPD immediately; approach from stairwells.',
     sceneSummary: 'Whispered audio: "he has a gun"; footsteps and shouting in background.',
+    cues: ['whispered speech', 'footsteps approaching', 'shouting in background'],
+    reasons: [
+      'Caller reports armed individual → risk of imminent violence',
+      'Caller hiding and whispering → cannot speak freely',
+      'Footsteps approaching on the last update → threat may be near the caller',
+    ],
+    trend: 'worsening',
+    timeline: [
+      tick(3, 7, 'ACTIVE_THREAT', { sceneSummary: 'Muffled shouting, caller breathing quickly.' }),
+      tick(1.5, 8, 'ACTIVE_THREAT', { sceneSummary: 'Whispered audio: "he has a gun".' }),
+      tick(0.5, 9, 'ACTIVE_THREAT', { sceneSummary: 'Whispered audio; footsteps approaching.' }),
+    ],
+    updateCount: 3,
+    lastSeenAt: minsAgo(0.5),
     gps: { lat: 42.38973, lng: -72.52825, accuracy: 12, altitude: 130 },
     building: {
       name: 'W.E.B. Du Bois Library',
@@ -35,7 +72,7 @@ export const mockIncidents: Incident[] = [
     },
     lowBandwidth: false,
     status: 'ACTIVE',
-    createdAt: minsAgo(0.5),
+    createdAt: minsAgo(3),
     updatedAt: minsAgo(0.5),
   },
   {
@@ -47,6 +84,9 @@ export const mockIncidents: Incident[] = [
     dispatcherBrief:
       'Caller reports a person injured while fleeing inside Du Bois Library; heavy bleeding from a leg wound. Stage EMS until the scene is secured.',
     sceneSummary: 'Audio: caller breathing heavily, says "someone is bleeding"; alarm in background.',
+    cues: ['heavy breathing', '"someone is bleeding"', 'alarm tone'],
+    reasons: ['Heavy bleeding from a leg wound → risk of severe blood loss'],
+    trend: 'new',
     gps: { lat: 42.38965, lng: -72.52832, accuracy: 15, altitude: 81 },
     building: {
       name: 'W.E.B. Du Bois Library',
@@ -76,6 +116,18 @@ export const mockIncidents: Incident[] = [
     dispatcherBrief:
       'Male collapsed on basketball court, unresponsive, bystander starting CPR. Possible cardiac arrest. Send ALS; AED is at the front desk.',
     sceneSummary: 'Image shows person on gym floor, bystanders kneeling beside him.',
+    cues: ['person lying motionless on court', 'bystander doing chest compressions', 'second bystander running toward lobby'],
+    reasons: [
+      'Unresponsive with CPR in progress → possible cardiac arrest',
+      'Bystander heading to lobby → AED may already be on its way',
+    ],
+    trend: 'stable',
+    timeline: [
+      tick(1.5, 8, 'MEDICAL_CRISIS', { sceneSummary: 'Person collapsed on gym floor.' }),
+      tick(0.8, 8, 'MEDICAL_CRISIS', { sceneSummary: 'Bystander doing compressions.' }),
+    ],
+    updateCount: 2,
+    lastSeenAt: minsAgo(0.8),
     // Altitude without groundElevationM: no floor estimate should be shown.
     gps: { lat: 42.38886, lng: -72.53167, accuracy: 8, altitude: 66 },
     building: {
@@ -133,6 +185,16 @@ export const mockIncidents: Incident[] = [
     severityScore: 5,
     dispatcherBrief:
       'Low-bandwidth SOS: no image or audio received. Location only. Treat as unknown emergency; attempt callback and send unit to check.',
+    trend: 'stable',
+    timeline: [
+      tick(4, 5, 'UNKNOWN', { lowBandwidth: true }),
+      tick(3.3, 5, 'UNKNOWN', { lowBandwidth: true }),
+      tick(2.6, 5, 'UNKNOWN', { lowBandwidth: true }),
+    ],
+    updateCount: 3,
+    lastSeenAt: minsAgo(2.6),
+    escalated: true,
+    escalationReason: 'Signal lost: no telemetry for over 2 minutes after 3 updates',
     gps: { lat: 42.38158, lng: -72.52931, accuracy: 35, altitude: 99 },
     building: {
       name: 'Washington Hall',
@@ -148,11 +210,12 @@ export const mockIncidents: Incident[] = [
       allergies: [],
       medications: ['Insulin'],
       emergencyContact: { name: 'Wei Chen', phone: '413-555-0104' },
+      mobilityNotes: 'Uses a manual wheelchair',
     },
     lowBandwidth: true,
     status: 'ACTIVE',
     createdAt: minsAgo(4),
-    updatedAt: minsAgo(4),
+    updatedAt: minsAgo(2.6),
   },
   {
     _id: 'mock-005',
