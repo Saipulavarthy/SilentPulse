@@ -105,6 +105,7 @@ export async function gradeWithGrok(input: {
       'trend = "new" when there is no history; otherwise compare to prior ticks (worsening/stable/improving).',
       "dispatcherBrief must be exactly 2 concise sentences for a human dispatcher who CONFIRMS dispatch (your output is a RECOMMENDATION).",
       "When history exists, mention the trend in the brief. Call out medical red flags from ICE. Include building context if given.",
+      "When a building is provided, factor in its floor count and notes: a fire in a multi-story building raises severity and the brief should say not to use elevators; for an active threat in a building, the brief should give floor/entry context. Never invent building details that aren't provided.",
       "reasons: 2-4 short strings linking evidence to risk (e.g. \"Severe asthma + smoke inhalation risk\", \"Deaf: cannot hear responders calling out\").",
       "victimInstructions: 2-3 imperative steps, max 12 words each, specific to the crisis AND the ICE profile (e.g. \"Use your albuterol inhaler now.\").",
       "For ACTIVE_THREAT, victimInstructions must be silent actions only (no \"call out\", no \"make noise\").",

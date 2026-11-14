@@ -48,7 +48,12 @@ type LeanIncident = {
   reasons?: string[] | null;
   trend?: Trend | string | null;
   gps?: { lat: number; lng: number } | null;
-  building?: Incident["building"];
+  building?: {
+    name: string;
+    type: string;
+    floors: number;
+    notes?: string | null;
+  } | null;
   iceProfile?: LeanIce;
   lowBandwidth?: boolean | null;
   classificationFailed?: boolean | null;
@@ -56,6 +61,8 @@ type LeanIncident = {
   victimInstructions?: string | string[] | null;
   status: Incident["status"] | string;
   lastSeenAt?: Date | string | null;
+  escalated?: boolean | null;
+  escalationReason?: string | null;
   updateCount?: number | null;
   timeline?: LeanTimelineEntry[] | null;
   createdAt?: Date | string;
@@ -146,7 +153,18 @@ export function serializeIncident(doc: LeanIncident): Incident {
     reasons: Array.isArray(doc.reasons) ? doc.reasons : [],
     trend: (doc.trend as Trend) || "new",
     ...(doc.gps ? { gps: { lat: doc.gps.lat, lng: doc.gps.lng } } : {}),
-    ...(doc.building ? { building: doc.building } : {}),
+    ...(doc.building
+      ? {
+          building: {
+            name: doc.building.name,
+            type: doc.building.type,
+            floors: doc.building.floors,
+            ...(doc.building.notes
+              ? { notes: doc.building.notes }
+              : {}),
+          },
+        }
+      : {}),
     iceProfile: serializeIce(doc.iceProfile ?? null),
     lowBandwidth: Boolean(doc.lowBandwidth),
     classificationFailed: Boolean(doc.classificationFailed),
@@ -158,6 +176,10 @@ export function serializeIncident(doc: LeanIncident): Incident {
     status,
     dispatcherStatus: statusToDispatcherStatus(status),
     ...(doc.lastSeenAt ? { lastSeenAt: toIso(doc.lastSeenAt) } : {}),
+    escalated: Boolean(doc.escalated),
+    ...(doc.escalationReason
+      ? { escalationReason: doc.escalationReason }
+      : {}),
     ...(typeof doc.updateCount === "number"
       ? { updateCount: doc.updateCount }
       : {}),

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { classifyWithGemini } from "@/lib/ai/gemini";
 import { gradeWithGrok, type GrokHistoryEntry } from "@/lib/ai/grok";
 import { isNonEmptyMedia } from "@/lib/ai/media";
+import { buildingAt } from "@/lib/buildingLookup";
 import { iceFromPhone } from "@/lib/iceFromPhone";
 import { connectToDatabase } from "@/lib/mongodb";
 import { serializeIncident } from "@/lib/serializeIncident";
@@ -12,6 +13,7 @@ import {
   type CrisisType,
 } from "@/models/Incident";
 import type {
+  Building,
   IceProfile as IceProfileShape,
   SimulateCrisisType,
   TriageRequest,
@@ -125,6 +127,7 @@ function triageJsonResponse(serialized: ReturnType<typeof serializeIncident>) {
       cues: serialized.cues ?? [],
       reasons: serialized.reasons ?? [],
       trend: serialized.trend ?? "new",
+      building: serialized.building ?? null,
       lowBandwidth: serialized.lowBandwidth,
       classificationFailed: serialized.classificationFailed,
       simulated: serialized.simulated,
@@ -401,6 +404,10 @@ export async function POST(request: Request) {
     const { history, previousSeverityScore } =
       historyFromSession(existingSession);
 
+    const building: Building | null = gps
+      ? buildingAt(gps.lat, gps.lng)
+      : null;
+
     const {
       severityScore,
       dispatcherBrief,
@@ -416,7 +423,7 @@ export async function POST(request: Request) {
       sceneSummary,
       cues,
       simulated,
-      building: null,
+      building,
       history,
       previousSeverityScore,
     });
@@ -431,6 +438,11 @@ export async function POST(request: Request) {
       now,
     });
 
+    const wasEscalated = Boolean(existingSession?.escalated);
+    const reasonsToStore = wasEscalated
+      ? [...reasons, "Signal restored"]
+      : reasons;
+
     const latestFields = {
       userId,
       crisisType,
@@ -438,9 +450,10 @@ export async function POST(request: Request) {
       dispatcherBrief,
       ...(sceneSummary ? { sceneSummary } : {}),
       cues,
-      reasons,
+      reasons: reasonsToStore,
       trend,
       ...(gps ? { gps } : {}),
+      building,
       lowBandwidth,
       classificationFailed,
       simulated,
@@ -453,10 +466,15 @@ export async function POST(request: Request) {
     let incident;
     if (sessionId && existingSession) {
       // Update path: never $set status — preserves ACKNOWLEDGED / RESOLVED.
+      // Clear signal-loss escalation; Grok severity replaces the forced 10.
       incident = await ActiveIncident.findOneAndUpdate(
         { sessionId },
         {
-          $set: latestFields,
+          $set: {
+            ...latestFields,
+            escalated: false,
+          },
+          $unset: { escalationReason: "" },
           $inc: { updateCount: 1 },
           $push: { timeline: { $each: [timelineEntry], $slice: -50 } },
         },
@@ -466,6 +484,7 @@ export async function POST(request: Request) {
       // Create path (with or without sessionId).
       incident = await ActiveIncident.create({
         ...latestFields,
+        escalated: false,
         status: "ACTIVE",
         updateCount: 1,
         timeline: [timelineEntry],

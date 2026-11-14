@@ -1,0 +1,4 @@
+{
+  "_comment": "Manual building names, applied last (they win over OpenStreetMap). Entry forms: { \"osmId\": \"way/123\", \"name\": \"...\" } renames that OSM building; { \"lat\": 42.39, \"lng\": -72.52, \"name\": \"...\" } names whichever map footprint contains that point.",
+  "overrides": []
+}
