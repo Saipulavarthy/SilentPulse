@@ -1,6 +1,6 @@
 import { connection, NextResponse } from "next/server";
 import { connectToDatabase } from "@/lib/mongodb";
-import { IceProfile } from "@/models/IceProfile";
+import { serializeIncident } from "@/lib/serializeIncident";
 import {
   ActiveIncident,
   INCIDENT_STATUSES,
@@ -30,26 +30,16 @@ export async function GET(request: Request) {
       filter.status = statusParam as IncidentStatus;
     }
 
+    // Use the ICE snapshot stored on each incident — no live IceProfile join.
     const incidents = await ActiveIncident.find(filter)
       .sort({ createdAt: -1 })
       .limit(50)
       .lean();
 
-    const userIds = [...new Set(incidents.map((incident) => incident.userId))];
-    const profiles = await IceProfile.find({
-      userId: { $in: userIds },
-    }).lean();
-
-    const profileByUserId = new Map(
-      profiles.map((profile) => [profile.userId, profile]),
+    return NextResponse.json(
+      { incidents: incidents.map((doc) => serializeIncident(doc)) },
+      { status: 200 },
     );
-
-    const enriched = incidents.map((incident) => ({
-      ...incident,
-      iceProfile: profileByUserId.get(incident.userId) ?? null,
-    }));
-
-    return NextResponse.json({ incidents: enriched }, { status: 200 });
   } catch (error) {
     console.error("[incidents] GET unexpected error:", error);
     return NextResponse.json(

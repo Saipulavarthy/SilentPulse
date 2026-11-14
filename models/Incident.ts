@@ -4,14 +4,14 @@ export const CRISIS_TYPES = [
   "ENVIRONMENTAL_HAZARD",
   "MEDICAL_CRISIS",
   "ACTIVE_THREAT",
-  "LOW_BANDWIDTH_SOS",
+  "UNKNOWN",
 ] as const;
 
 export type CrisisType = (typeof CRISIS_TYPES)[number];
 
 export const INCIDENT_STATUSES = [
   "ACTIVE",
-  "DISPATCHED",
+  "ACKNOWLEDGED",
   "RESOLVED",
 ] as const;
 
@@ -47,6 +47,8 @@ const IncidentIceSnapshotSchema = new Schema(
 const ActiveIncidentSchema = new Schema(
   {
     userId: { type: String, required: true, index: true },
+    /** Phone continuous-telemetry session; upserts reuse the same incident. */
+    sessionId: { type: String, index: true, unique: true, sparse: true },
     crisisType: {
       type: String,
       enum: CRISIS_TYPES,
@@ -59,8 +61,12 @@ const ActiveIncidentSchema = new Schema(
       required: true,
     },
     dispatcherBrief: { type: String, required: true },
-    gps: { type: GpsSchema, required: true },
-    isLowBandwidth: { type: Boolean, default: false },
+    sceneSummary: { type: String },
+    /** Optional — phone may omit GPS. */
+    gps: { type: GpsSchema, required: false },
+    lowBandwidth: { type: Boolean, default: false },
+    classificationFailed: { type: Boolean, default: false },
+    victimInstructions: { type: String, required: true },
     /** ICE snapshot used for this SOS (phone and/or Mongo merge). */
     iceProfile: { type: IncidentIceSnapshotSchema, default: null },
     status: {
