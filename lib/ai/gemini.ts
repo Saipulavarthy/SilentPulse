@@ -17,6 +17,7 @@ const PERCEPTION_TYPES = [
   "ENVIRONMENTAL_HAZARD",
   "MEDICAL_CRISIS",
   "ACTIVE_THREAT",
+  "UNKNOWN",
 ] as const;
 
 type PerceptionCrisisType = (typeof PERCEPTION_TYPES)[number];
@@ -34,15 +35,14 @@ const GEMINI_SYSTEM_INSTRUCTION = [
   "You will receive a camera still (and optionally audio) from a phone SOS.",
   "You MUST look at the image and listen to the audio before deciding.",
   "",
-  "Choose exactly ONE crisisType:",
-  "- ENVIRONMENTAL_HAZARD: fire, smoke, flood, gas, chemical spill, structural collapse, severe weather damage, visible environmental danger.",
-  "- MEDICAL_CRISIS: injury, collapse, seizure, chest pain, overdose, unconsciousness, choking, panic attack, heavy breathing, crying, hyperventilating, medical distress with NO clear attacker in frame.",
-  "- ACTIVE_THREAT: weapon, assault, physical attacker, hostage situation, or clear violent threat visible/audible. Do NOT use this for panic breathing alone.",
+  "CRITICAL CLASSIFICATION RULES:",
+  '1. THREAT OVERRIDE: If the audio contains explicit threat vocabulary ("don\'t shoot", "stop", "help me") OR the video shows defensive body language (hands raised, cowering), classify as ACTIVE_THREAT (SECURITY_THREAT) immediately.',
+  '2. FIRE & ENTRAPMENT: If audio contains "fire", "smoke", "trapped", or alarms, OR video shows flames/smoke/entrapment, classify as ENVIRONMENTAL_HAZARD (FIRE_ENVIRONMENTAL).',
+  "3. MEDICAL CRISIS: Require STRONG evidence. Only classify as MEDICAL_CRISIS if there is unmistakable heavy breathing, hyperventilating, crying, or visible physical distress/injury.",
+  "4. SILENCE & AMBIENCE (STRICT FILTER): You must ignore background static, room hum, music, and empty rooms. Do NOT assume static or silence is heavy breathing.",
+  "5. AMBIGUOUS / DEFAULT: If the user is just sitting there, if there is only silence/static, if the camera is blocked/black, or if there is no explicit sign of danger, you MUST classify as UNKNOWN (UNKNOWN_CRISIS).",
   "",
-  "Critical rule: If the audio detects heavy breathing, crying, hyperventilating, or panic, you must classify it as a MEDICAL_CRISIS unless the video frames explicitly show a physical attacker.",
-  "A dark, covered or obstructed frame combined with whispering, shouting, banging, screaming or gunshot-like sounds indicates a person hiding from a threat → ACTIVE_THREAT.",
-  "Do not default to ACTIVE_THREAT. If evidence is ambiguous between medical and threat, prefer MEDICAL_CRISIS (unless the dark/obstructed + threat-sound rule applies).",
-  "If evidence is ambiguous between medical and environmental, prefer the clearer visual cue; if still unclear, prefer MEDICAL_CRISIS.",
+  "crisisType must be exactly one of: ENVIRONMENTAL_HAZARD, MEDICAL_CRISIS, ACTIVE_THREAT, UNKNOWN.",
   "",
   "Also describe the scene:",
   "- sceneSummary: one sentence covering what is seen AND heard.",
@@ -52,7 +52,7 @@ const GEMINI_SYSTEM_INSTRUCTION = [
 ].join("\n");
 
 const GEMINI_USER_PROMPT =
-  "Analyze the attached camera frame and audio from this SilentPulse SOS. Return JSON with crisisType, sceneSummary, and cues.";
+  "Analyze the attached camera frame and audio from this SilentPulse SOS. Apply the CRITICAL CLASSIFICATION RULES strictly. Return JSON with crisisType, sceneSummary, and cues. Prefer UNKNOWN when evidence is weak or ambient-only.";
 
 const GEMINI_RESPONSE_SCHEMA: ResponseSchema = {
   type: SchemaType.OBJECT,
@@ -78,37 +78,44 @@ const GEMINI_RESPONSE_SCHEMA: ResponseSchema = {
 export function extractCrisisType(raw: string): PerceptionCrisisType | null {
   const upper = raw.toUpperCase();
   const embedded = upper.match(
-    /\b(ENVIRONMENTAL_HAZARD|MEDICAL_CRISIS|ACTIVE_THREAT)\b/,
+    /\b(SECURITY_THREAT|FIRE_ENVIRONMENTAL|UNKNOWN_CRISIS|ENVIRONMENTAL_HAZARD|MEDICAL_CRISIS|ACTIVE_THREAT|UNKNOWN)\b/,
   );
-  if (embedded) return embedded[1] as PerceptionCrisisType;
+  if (embedded) {
+    return mapGeminiLabelToPerception(embedded[1]);
+  }
 
-  let normalized = upper.trim().replace(/[^A-Z_]/g, "");
-  if (
-    normalized === "SECURITY_THREAT" ||
-    normalized === "THREAT" ||
-    normalized === "VIOLENT_THREAT" ||
-    normalized === "ASSAULT"
-  ) {
-    normalized = "ACTIVE_THREAT";
+  return mapGeminiLabelToPerception(upper.trim().replace(/[^A-Z_]/g, ""));
+}
+
+function mapGeminiLabelToPerception(
+  label: string,
+): PerceptionCrisisType | null {
+  const normalized = label.toUpperCase().trim().replace(/[^A-Z_]/g, "");
+
+  switch (normalized) {
+    case "SECURITY_THREAT":
+    case "ACTIVE_THREAT":
+    case "THREAT":
+    case "VIOLENT_THREAT":
+    case "ASSAULT":
+      return "ACTIVE_THREAT";
+    case "FIRE_ENVIRONMENTAL":
+    case "ENVIRONMENTAL_HAZARD":
+    case "FIRE":
+    case "HAZARD":
+    case "ENVIRONMENTAL":
+      return "ENVIRONMENTAL_HAZARD";
+    case "MEDICAL_CRISIS":
+    case "MEDICAL":
+    case "PANIC_ATTACK":
+    case "HEALTH_EMERGENCY":
+      return "MEDICAL_CRISIS";
+    case "UNKNOWN_CRISIS":
+    case "UNKNOWN":
+      return "UNKNOWN";
+    default:
+      return null;
   }
-  if (
-    normalized === "MEDICAL" ||
-    normalized === "PANIC_ATTACK" ||
-    normalized === "HEALTH_EMERGENCY"
-  ) {
-    normalized = "MEDICAL_CRISIS";
-  }
-  if (
-    normalized === "FIRE" ||
-    normalized === "HAZARD" ||
-    normalized === "ENVIRONMENTAL"
-  ) {
-    normalized = "ENVIRONMENTAL_HAZARD";
-  }
-  if ((PERCEPTION_TYPES as readonly string[]).includes(normalized)) {
-    return normalized as PerceptionCrisisType;
-  }
-  return null;
 }
 
 function cleanCues(value: unknown): string[] {
