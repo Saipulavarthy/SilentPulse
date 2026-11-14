@@ -32,7 +32,7 @@ export async function POST(request: Request) {
           },
         },
       },
-      { upsert: true, new: true, setDefaultsOnInsert: true },
+      { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
     );
 
     return NextResponse.json(profile, { status: 200 });

@@ -266,12 +266,14 @@ async function classifyWithGemini(
 
   try {
     const genAI = new GoogleGenerativeAI(apiKey);
+    // gemini-2.5-flash spends output tokens on hidden "thinking".
+    // maxOutputTokens: 32 left zero tokens for the visible label → empty text().
     const model = genAI.getGenerativeModel({
       model: "gemini-2.5-flash",
       systemInstruction: GEMINI_SYSTEM_INSTRUCTION,
       generationConfig: {
-        temperature: 0.1,
-        maxOutputTokens: 32,
+        temperature: 0.2,
+        maxOutputTokens: 2048,
       },
     });
 
@@ -339,8 +341,29 @@ async function classifyWithGemini(
       AI_TIMEOUT_MS,
       "Gemini",
     );
-    const text = result.response.text() ?? "";
-    console.log("[triage] Gemini raw classification:", text);
+
+    const candidate = result.response.candidates?.[0];
+    console.log("[triage] Gemini finishReason:", candidate?.finishReason);
+    console.log(
+      "[triage] Gemini promptFeedback:",
+      JSON.stringify(result.response.promptFeedback ?? null),
+    );
+
+    let text = "";
+    try {
+      text = result.response.text() ?? "";
+    } catch (textErr) {
+      console.warn("[triage] response.text() threw:", textErr);
+    }
+    // Fallback: stitch any text parts if .text() is empty/blocked.
+    if (!text.trim() && candidate?.content?.parts) {
+      text = candidate.content.parts
+        .map((p) => ("text" in p && typeof p.text === "string" ? p.text : ""))
+        .join("")
+        .trim();
+    }
+
+    console.log("[triage] Gemini raw classification:", JSON.stringify(text));
     const extracted = extractCrisisType(text);
     if (!extracted) {
       console.warn(
@@ -513,7 +536,7 @@ async function resolveIceProfile(
             : {}),
         },
       },
-      { upsert: true, new: true, setDefaultsOnInsert: true },
+      { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
     ).lean();
 
     profileForTriage = leanToIceShape(upserted);
@@ -654,7 +677,7 @@ export async function POST(request: Request) {
             $set: triageFields,
             $setOnInsert: { status: "ACTIVE" },
           },
-          { upsert: true, new: true, setDefaultsOnInsert: true },
+          { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
         )
       : await ActiveIncident.create({
           ...triageFields,
