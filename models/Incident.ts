@@ -122,6 +122,8 @@ const ActiveIncidentSchema = new Schema(
     escalationReason: { type: String },
     updateCount: { type: Number, default: 1 },
     timeline: { type: [TimelineEntrySchema], default: [] },
+    /** Victim quick-action selection from the phone crisis UI. */
+    userProvidedContext: { type: String, default: null },
     status: {
       type: String,
       enum: INCIDENT_STATUSES,
