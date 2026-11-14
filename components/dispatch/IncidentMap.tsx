@@ -11,18 +11,26 @@ import {
   type JumpToOptions,
 } from 'maplibre-gl';
 import { useEffect, useEffectEvent, useRef, useState } from 'react';
+import { nameForFootprint } from '@/lib/landmarks';
 import type { Incident } from '@/types/incident';
 import type { MapPanelProps } from './MapPanel';
 import {
+  buildingKey,
+  buildingOf,
   circlePolygon,
   findFootprints,
   groupIncidents,
   inflate,
+  inPolygon,
   isDrawn,
+  prismHit,
   projectWithAltitude,
+  surfacePoint,
+  tilePolygons,
   type BuildingFeature,
   type Footprint,
   type SceneGroup,
+  type TilePolygon,
 } from './mapScene';
 import { incidentNumber, tierStyle, typeLabel } from './severity';
 import { MONO } from './ui';
@@ -54,6 +62,7 @@ const ACCENT = '#38bdf8';
 
 const ACCURACY_SOURCE = 'sp-accuracy';
 const INCIDENT_BUILDINGS_SOURCE = 'sp-incident-buildings';
+const HOVER_SOURCE = 'sp-hover';
 const EMPTY: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
 
 // MapLibre's CSS is unlayered, so it beats Tailwind's layered utilities: overrides need `!`.
@@ -67,12 +76,16 @@ const MAP_CHROME = [
 ].join(' ');
 
 type Badge = { group: SceneGroup; el: HTMLElement };
+type Hover = { key: string; incidents: Incident[] };
 
 export default function IncidentMap({ incidents, selectedId, onSelect }: MapPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
+  const tooltipRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const footprintsRef = useRef(new Map<string, Footprint | null>());
+  const polygonsRef = useRef<TilePolygon[]>([]);
+  const hoverRef = useRef<Hover | null>(null);
   const badgesRef = useRef<Badge[]>([]);
   const matrixRef = useRef<ArrayLike<number> | null>(null);
   const lastFlownRef = useRef<string | null>(null);
@@ -154,15 +167,111 @@ export default function IncidentMap({ incidents, selectedId, onSelect }: MapPane
   const lookupFootprints = useEffectEvent(() => {
     const map = mapRef.current;
     if (!map) return;
-    const features = map.querySourceFeatures(VECTOR_SOURCE, { sourceLayer: 'building' }) as BuildingFeature[];
+    const polygons = tilePolygons(map.querySourceFeatures(VECTOR_SOURCE, { sourceLayer: 'building' }) as BuildingFeature[]);
+    polygonsRef.current = polygons;
     const view = map.getBounds();
     const isInView = (lng: number, lat: number) => map.getZoom() >= 13 && view.contains([lng, lat]);
-    const next = findFootprints(features, incidents.filter(isDrawn), isInView, footprintsRef.current);
+    const next = findFootprints(polygons, incidents.filter(isDrawn), isInView, footprintsRef.current);
     const signature = (m: Map<string, Footprint | null>) =>
       [...m].map(([id, f]) => `${id}=${f ? `${f.key}@${f.roofHeight}/${f.parts.length}` : '-'}`).sort().join('|');
     if (signature(next) === signature(footprintsRef.current)) return;
     footprintsRef.current = next;
     renderScene();
+  });
+
+  /** Removes the hover tooltip, highlight and pointer cursor. */
+  const clearHover = () => {
+    hoverRef.current = null;
+    if (tooltipRef.current) tooltipRef.current.style.display = 'none';
+    const map = mapRef.current;
+    if (!map) return;
+    map.getCanvas().style.cursor = '';
+    map.getSource<GeoJSONSource>(HOVER_SOURCE)?.setData(EMPTY);
+  };
+
+  /**
+   * Hover: the extruded footprint under the cursor (3D hit test against roofs and walls),
+   * named by the OSM building whose centroid lies inside it. No such building → no tooltip.
+   */
+  const hoverAt = useEffectEvent((point: { x: number; y: number }) => {
+    const map = mapRef.current;
+    const matrix = matrixRef.current;
+    const tooltip = tooltipRef.current;
+    if (!map || !matrix || !tooltip || map.isMoving()) return;
+
+    const canvas = map.getCanvas();
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    const worldSize = 512 * 2 ** map.getZoom();
+    const hits = map.queryRenderedFeatures([point.x, point.y], { layers: ['sp-buildings-3d'] }) as BuildingFeature[];
+    let hovered: TilePolygon | null = null;
+    let nearest = Infinity;
+    for (const part of tilePolygons(hits)) {
+      if (part.hidden || part.height <= 0) continue;
+      const depth = prismHit(matrix, worldSize, w, h, part, point);
+      if (depth !== null && depth < nearest) {
+        hovered = part;
+        nearest = depth;
+      }
+    }
+    if (!hovered) return clearHover();
+
+    const { outline, parts } = buildingOf(polygonsRef.current, hovered);
+    const key = buildingKey(outline);
+    const inside = incidents
+      .filter((i) => isDrawn(i) && inPolygon([i.gps.lng, i.gps.lat], outline))
+      .sort((a, b) => b.severityScore - a.severityScore);
+    canvas.style.cursor = inside.length > 0 ? 'pointer' : '';
+
+    // Name by where the cursor actually is on the building, tested against OSM outlines.
+    const onSurface = surfacePoint(matrix, worldSize, w, h, point, hovered);
+    const name = onSurface ? nameForFootprint(onSurface, outline) : null;
+
+    if (hoverRef.current?.key !== key) {
+      map.getSource<GeoJSONSource>(HOVER_SOURCE)?.setData(
+        name
+          ? {
+              type: 'FeatureCollection',
+              features: parts.map((part) => ({
+                type: 'Feature' as const,
+                properties: { height: part.height + 1.2, base: part.base },
+                geometry: { type: 'Polygon' as const, coordinates: inflate(part.polygon, 1.2) },
+              })),
+            }
+          : EMPTY,
+      );
+    }
+    hoverRef.current = { key, incidents: inside };
+
+    if (!name) {
+      tooltip.style.display = 'none';
+      return;
+    }
+    const line1 = name.levels ? `${name.name} · ${name.levels} floors` : name.name;
+    const open = inside.filter((i) => i.status === 'ACTIVE').length;
+    const ack = inside.length - open;
+    const line2 =
+      inside.length === 0
+        ? ''
+        : ack === 0
+          ? `${open} open incident${open === 1 ? '' : 's'}, highest ${inside[0].severityScore}`
+          : `${inside.length} incident${inside.length === 1 ? '' : 's'} (${ack} acknowledged), highest ${inside[0].severityScore}`;
+    const [first, second] = tooltip.children as unknown as [HTMLElement, HTMLElement];
+    first.textContent = line1;
+    second.textContent = line2;
+    second.style.display = line2 ? 'block' : 'none';
+
+    tooltip.style.display = 'block';
+    const flip = point.x + 14 + tooltip.offsetWidth > w;
+    const x = flip ? point.x - 14 - tooltip.offsetWidth : point.x + 14;
+    const y = Math.min(point.y + 16, h - tooltip.offsetHeight - 4);
+    tooltip.style.transform = `translate(${x}px, ${y}px)`;
+  });
+
+  /** Clicking a building with incidents selects its highest-severity incident. */
+  const selectHovered = useEffectEvent(() => {
+    const top = hoverRef.current?.incidents[0];
+    if (top) onSelect(top._id);
   });
 
   // Create the map once.
@@ -183,7 +292,9 @@ export default function IncidentMap({ incidents, selectedId, onSelect }: MapPane
     });
     const overview = overviewCamera(map, initialDrawn);
     map.jumpTo(overview);
-    map.addControl(new NavigationControl({ visualizePitch: true }), 'top-left');
+    // Three separate controls, so MapLibre stacks them with its standard 10px gap.
+    map.addControl(new NavigationControl({ showCompass: false }), 'top-left');
+    map.addControl(new NavigationControl({ showZoom: false, visualizePitch: true }), 'top-left');
     map.addControl(new OverviewControl(() => map.flyTo({ ...overview, duration: 1200 })), 'top-left');
 
     map.on('load', () => {
@@ -194,8 +305,23 @@ export default function IncidentMap({ incidents, selectedId, onSelect }: MapPane
     // Tiles finished loading after a camera move: footprints may now be available.
     map.on('idle', () => lookupFootprints());
 
+    // Hover is read-only: it never changes selection or moves the camera.
+    let frame = 0;
+    map.on('mousemove', (e) => {
+      const { x, y } = e.point;
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => hoverAt({ x, y }));
+    });
+    map.on('mouseout', () => {
+      cancelAnimationFrame(frame);
+      clearHover();
+    });
+    map.on('movestart', () => clearHover());
+    map.on('click', () => selectHovered());
+
     mapRef.current = map;
     return () => {
+      cancelAnimationFrame(frame);
       map.remove();
       mapRef.current = null;
     };
@@ -229,6 +355,14 @@ export default function IncidentMap({ incidents, selectedId, onSelect }: MapPane
     <div className="absolute inset-0">
       <div ref={containerRef} className={`h-full w-full bg-[#16171a] ${MAP_CHROME}`} />
       <div ref={overlayRef} className="pointer-events-none absolute inset-0 z-[1] overflow-hidden" />
+      <div
+        ref={tooltipRef}
+        role="tooltip"
+        className={`pointer-events-none absolute top-0 left-0 z-[2] hidden max-w-[320px] rounded-[2px] border border-neutral-700 bg-[#121213] px-2 py-1 text-[11px] leading-[1.45] ${MONO}`}
+      >
+        <span className="block text-neutral-100" />
+        <span className="block text-neutral-400" />
+      </div>
     </div>
   );
 }
@@ -357,6 +491,23 @@ function addDispatchLayers(map: MapLibreMap, onFrame: (matrix: ArrayLike<number>
       beforeLabels,
     );
   }
+
+  // Hovered building: a faint white shell just outside it, which lightens slate and colour alike.
+  map.addSource(HOVER_SOURCE, { type: 'geojson', data: EMPTY });
+  map.addLayer(
+    {
+      id: 'sp-hover',
+      type: 'fill-extrusion',
+      source: HOVER_SOURCE,
+      paint: {
+        'fill-extrusion-color': '#ffffff',
+        'fill-extrusion-height': ['get', 'height'],
+        'fill-extrusion-base': ['get', 'base'],
+        'fill-extrusion-opacity': 0.18,
+      },
+    },
+    beforeLabels,
+  );
 
   // Draws nothing: receives the camera matrix each frame so HTML badges can sit on roofs.
   map.addLayer({

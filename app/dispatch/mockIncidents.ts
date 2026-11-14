@@ -47,7 +47,7 @@ export const mockIncidents: Incident[] = [
     dispatcherBrief:
       'Caller reports a person injured while fleeing inside Du Bois Library; heavy bleeding from a leg wound. Stage EMS until the scene is secured.',
     sceneSummary: 'Audio: caller breathing heavily, says "someone is bleeding"; alarm in background.',
-    gps: { lat: 42.38965, lng: -72.52832, accuracy: 15 },
+    gps: { lat: 42.38965, lng: -72.52832, accuracy: 15, altitude: 81 },
     building: {
       name: 'W.E.B. Du Bois Library',
       type: 'Library',
