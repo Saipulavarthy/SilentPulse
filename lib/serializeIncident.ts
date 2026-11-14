@@ -1,4 +1,9 @@
-import type { CrisisType, Incident, IceProfile } from "@/types/incident";
+import type {
+  CrisisType,
+  Incident,
+  IceProfile,
+  TimelineEntry,
+} from "@/types/incident";
 import {
   statusToDispatcherStatus,
   VICTIM_INSTRUCTIONS,
@@ -20,6 +25,15 @@ type LeanIce = {
   sensoryNotes?: string | null;
 } | null;
 
+type LeanTimelineEntry = {
+  ts?: Date | string;
+  crisisType: CrisisType | string;
+  severityScore: number;
+  gps?: { lat: number; lng: number } | null;
+  lowBandwidth?: boolean | null;
+  classificationFailed?: boolean | null;
+};
+
 type LeanIncident = {
   _id: { toString(): string } | string;
   userId: string;
@@ -33,8 +47,12 @@ type LeanIncident = {
   iceProfile?: LeanIce;
   lowBandwidth?: boolean | null;
   classificationFailed?: boolean | null;
+  simulated?: boolean | null;
   victimInstructions?: string | null;
   status: Incident["status"] | string;
+  lastSeenAt?: Date | string | null;
+  updateCount?: number | null;
+  timeline?: LeanTimelineEntry[] | null;
   createdAt?: Date | string;
   updatedAt?: Date | string;
 };
@@ -68,10 +86,24 @@ function serializeIce(ice: LeanIce): IceProfile | null {
   };
 }
 
-function toIso(value: Date | string | undefined): string {
+function toIso(value: Date | string | undefined | null): string {
   if (!value) return new Date().toISOString();
   if (value instanceof Date) return value.toISOString();
   return new Date(value).toISOString();
+}
+
+function serializeTimeline(
+  entries: LeanTimelineEntry[] | null | undefined,
+): TimelineEntry[] | undefined {
+  if (!entries || entries.length === 0) return undefined;
+  return entries.map((e) => ({
+    ts: toIso(e.ts),
+    crisisType: e.crisisType as CrisisType,
+    severityScore: e.severityScore,
+    gps: e.gps ? { lat: e.gps.lat, lng: e.gps.lng } : null,
+    lowBandwidth: Boolean(e.lowBandwidth),
+    classificationFailed: Boolean(e.classificationFailed),
+  }));
 }
 
 /** Map a Mongo lean/hydrated ActiveIncident into the shared API Incident contract. */
@@ -91,12 +123,20 @@ export function serializeIncident(doc: LeanIncident): Incident {
     iceProfile: serializeIce(doc.iceProfile ?? null),
     lowBandwidth: Boolean(doc.lowBandwidth),
     classificationFailed: Boolean(doc.classificationFailed),
+    simulated: Boolean(doc.simulated),
     victimInstructions:
       doc.victimInstructions ||
       VICTIM_INSTRUCTIONS[crisisType] ||
       VICTIM_INSTRUCTIONS.UNKNOWN,
     status,
     dispatcherStatus: statusToDispatcherStatus(status),
+    ...(doc.lastSeenAt ? { lastSeenAt: toIso(doc.lastSeenAt) } : {}),
+    ...(typeof doc.updateCount === "number"
+      ? { updateCount: doc.updateCount }
+      : {}),
+    ...(serializeTimeline(doc.timeline)
+      ? { timeline: serializeTimeline(doc.timeline) }
+      : {}),
     createdAt: toIso(doc.createdAt),
     updatedAt: toIso(doc.updatedAt),
   };

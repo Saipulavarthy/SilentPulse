@@ -9,8 +9,15 @@ import {
   CRISIS_TYPES,
   type CrisisType,
 } from "@/models/Incident";
-import type { IceProfile as IceProfileShape, TriageRequest } from "@/types/incident";
+import type {
+  IceProfile as IceProfileShape,
+  SimulateCrisisType,
+  TriageRequest,
+} from "@/types/incident";
 import { VICTIM_INSTRUCTIONS } from "@/types/incident";
+
+/** Vercel / Next route segment: allow full Gemini+Grok budget. */
+export const maxDuration = 60;
 
 type GrokTriageResult = {
   severityScore: number;
@@ -23,8 +30,8 @@ type ClassifyResult = {
   rawModelText?: string;
 };
 
-/** Multimodal classify needs headroom (image + 3s audio). */
-const AI_TIMEOUT_MS = 25_000;
+const GEMINI_TIMEOUT_MS = 20_000;
+const GROK_TIMEOUT_MS = 12_000;
 
 const PERCEPTION_TYPES = [
   "ENVIRONMENTAL_HAZARD",
@@ -45,7 +52,8 @@ const GEMINI_SYSTEM_INSTRUCTION = [
   "- ACTIVE_THREAT: weapon, assault, physical attacker, hostage situation, or clear violent threat visible/audible. Do NOT use this for panic breathing alone.",
   "",
   "Critical rule: If the audio detects heavy breathing, crying, hyperventilating, or panic, you must classify it as a MEDICAL_CRISIS unless the video frames explicitly show a physical attacker.",
-  "Do not default to ACTIVE_THREAT. If evidence is ambiguous between medical and threat, prefer MEDICAL_CRISIS.",
+  "A dark, covered or obstructed frame combined with whispering, shouting, banging, screaming or gunshot-like sounds indicates a person hiding from a threat → ACTIVE_THREAT.",
+  "Do not default to ACTIVE_THREAT. If evidence is ambiguous between medical and threat, prefer MEDICAL_CRISIS (unless the dark/obstructed + threat-sound rule applies).",
   "If evidence is ambiguous between medical and environmental, prefer the clearer visual cue; if still unclear, prefer MEDICAL_CRISIS.",
   "",
   "Final answer format: respond with ONLY one of these exact strings and nothing else:",
@@ -61,6 +69,13 @@ function isNonEmptyMedia(value?: string): boolean {
   return typeof value === "string" && value.trim().length > 0;
 }
 
+function isSimulateCrisisType(value: unknown): value is SimulateCrisisType {
+  return (
+    typeof value === "string" &&
+    (PERCEPTION_TYPES as readonly string[]).includes(value)
+  );
+}
+
 /** Accepts data URIs with optional charset / extra params before ;base64, */
 function parseDataUri(input: string): { mimeType: string; data: string } {
   const trimmed = input.trim();
@@ -74,7 +89,10 @@ function parseDataUri(input: string): { mimeType: string; data: string } {
       data: match[2].replace(/\s/g, ""),
     };
   }
-  return { mimeType: "application/octet-stream", data: trimmed.replace(/\s/g, "") };
+  return {
+    mimeType: "application/octet-stream",
+    data: trimmed.replace(/\s/g, ""),
+  };
 }
 
 /**
@@ -101,7 +119,6 @@ function resolveMediaMime(
     return "audio/webm";
   }
 
-  // visual slot: still/canvas frame defaults to jpeg; video blobs stay video/*
   if (mt.includes("webm")) return "video/webm";
   if (mt.includes("mp4")) return "video/mp4";
   if (mt.includes("png")) return "image/png";
@@ -112,14 +129,12 @@ function resolveMediaMime(
 
 function extractCrisisType(raw: string): PerceptionCrisisType | null {
   const upper = raw.toUpperCase();
-  // Prefer an explicit label embedded anywhere in the model reply.
   const embedded = upper.match(
     /\b(ENVIRONMENTAL_HAZARD|MEDICAL_CRISIS|ACTIVE_THREAT)\b/,
   );
   if (embedded) return embedded[1] as PerceptionCrisisType;
 
   let normalized = upper.trim().replace(/[^A-Z_]/g, "");
-  // Common Gemini inventions / aliases
   if (
     normalized === "SECURITY_THREAT" ||
     normalized === "THREAT" ||
@@ -253,6 +268,30 @@ function leanToIceShape(
   };
 }
 
+function triageJsonResponse(serialized: ReturnType<typeof serializeIncident>) {
+  return NextResponse.json(
+    {
+      incidentId: serialized._id,
+      sessionId: serialized.sessionId,
+      classification: serialized.crisisType,
+      dispatcherStatus: serialized.dispatcherStatus,
+      crisisType: serialized.crisisType,
+      severityScore: serialized.severityScore,
+      dispatcherBrief: serialized.dispatcherBrief,
+      lowBandwidth: serialized.lowBandwidth,
+      classificationFailed: serialized.classificationFailed,
+      simulated: serialized.simulated,
+      victimInstructions: serialized.victimInstructions,
+      iceProfile: serialized.iceProfile,
+      updateCount: serialized.updateCount,
+      timeline: serialized.timeline,
+      lastSeenAt: serialized.lastSeenAt,
+      incident: serialized,
+    },
+    { status: 200 },
+  );
+}
+
 async function classifyWithGemini(
   imageBase64: string | undefined,
   audioBase64: string | undefined,
@@ -260,14 +299,11 @@ async function classifyWithGemini(
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     console.warn("[triage] GEMINI_API_KEY missing; classificationFailed");
-    // Do NOT bias to ACTIVE_THREAT on failure — that made every SOS look like a threat.
     return { crisisType: "UNKNOWN", classificationFailed: true };
   }
 
   try {
     const genAI = new GoogleGenerativeAI(apiKey);
-    // gemini-2.5-flash spends output tokens on hidden "thinking".
-    // maxOutputTokens: 32 left zero tokens for the visible label → empty text().
     const model = genAI.getGenerativeModel({
       model: "gemini-2.5-flash",
       systemInstruction: GEMINI_SYSTEM_INSTRUCTION,
@@ -299,7 +335,6 @@ async function classifyWithGemini(
     if (isNonEmptyMedia(audioBase64)) {
       const parsed = parseDataUri(audioBase64!);
       if (parsed.data.length > 0) {
-        // Strip codec params from mime for Gemini (audio/webm;codecs=opus → audio/webm)
         const mime = resolveMediaMime(
           parsed.mimeType.split(";")[0] || parsed.mimeType,
           "audio",
@@ -315,8 +350,6 @@ async function classifyWithGemini(
       }
     }
 
-    // Debug Gemini 400s: empty payloads vs oversized inline base64.
-    console.log("Gemini Parts:", JSON.stringify(parts).substring(0, 500));
     console.log(
       "[triage] Gemini part summary:",
       parts.map((p) =>
@@ -338,7 +371,7 @@ async function classifyWithGemini(
 
     const result = await withTimeout(
       model.generateContent({ contents: [{ role: "user", parts }] }),
-      AI_TIMEOUT_MS,
+      GEMINI_TIMEOUT_MS,
       "Gemini",
     );
 
@@ -355,7 +388,6 @@ async function classifyWithGemini(
     } catch (textErr) {
       console.warn("[triage] response.text() threw:", textErr);
     }
-    // Fallback: stitch any text parts if .text() is empty/blocked.
     if (!text.trim() && candidate?.content?.parts) {
       text = candidate.content.parts
         .map((p) => ("text" in p && typeof p.text === "string" ? p.text : ""))
@@ -415,6 +447,7 @@ async function gradeWithGrok(input: {
       "dispatcherBrief must be exactly 2 concise, high-signal sentences for an emergency dispatcher.",
       "Elevate severityScore when medical conditions/allergies conflict with the crisis,",
       "or when crisisType is UNKNOWN / lowBandwidth is true for a high-risk patient.",
+      "Mention relevant ICE conditions (e.g. asthma, diabetes) when present.",
       "Factor mobilityNotes and sensoryNotes into the brief and severity:",
       "e.g. a deaf user cannot hear responders calling out; a wheelchair user cannot use stairs.",
       "If sensoryNotes or mobilityNotes are present, at least one sentence must call out that operational constraint.",
@@ -447,7 +480,7 @@ async function gradeWithGrok(input: {
           ],
         }),
       }),
-      AI_TIMEOUT_MS,
+      GROK_TIMEOUT_MS,
       "Grok",
     );
 
@@ -536,7 +569,7 @@ async function resolveIceProfile(
             : {}),
         },
       },
-      { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
+      { upsert: true, returnDocument: "after", setDefaultsOnInsert: true },
     ).lean();
 
     profileForTriage = leanToIceShape(upserted);
@@ -545,13 +578,30 @@ async function resolveIceProfile(
   return profileForTriage;
 }
 
+function buildTimelineEntry(input: {
+  crisisType: CrisisType;
+  severityScore: number;
+  gps?: { lat: number; lng: number };
+  lowBandwidth: boolean;
+  classificationFailed: boolean;
+  now: Date;
+}) {
+  return {
+    ts: input.now,
+    crisisType: input.crisisType,
+    severityScore: input.severityScore,
+    gps: input.gps ?? null,
+    lowBandwidth: input.lowBandwidth,
+    classificationFailed: input.classificationFailed,
+  };
+}
+
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as TriageRequest & {
       image?: string;
       audio?: string;
     };
-    // Prefer imageBase64/audioBase64; fall back to phone's `image`/`audio` aliases.
     const {
       userId,
       gps: rawGps,
@@ -573,7 +623,19 @@ export async function POST(request: Request) {
       );
     }
 
-    // GPS is optional; if present, both lat/lng must be valid numbers.
+    // simulate must be a perception crisis type — boolean true / garbage → 400
+    if (simulate !== undefined && simulate !== null) {
+      if (!isSimulateCrisisType(simulate)) {
+        return NextResponse.json(
+          {
+            error:
+              "Invalid simulate. Must be one of: ENVIRONMENTAL_HAZARD, MEDICAL_CRISIS, ACTIVE_THREAT.",
+          },
+          { status: 400 },
+        );
+      }
+    }
+
     if (
       rawGps !== undefined &&
       rawGps !== null &&
@@ -592,70 +654,100 @@ export async function POST(request: Request) {
     }
 
     const gps = parseOptionalGps(rawGps);
+    const now = new Date();
 
     await connectToDatabase();
+
+    // Session lookup BEFORE AI — RESOLVED incidents short-circuit.
+    const existingSession = sessionId
+      ? await ActiveIncident.findOne({ sessionId }).lean()
+      : null;
+
+    if (existingSession?.status === "RESOLVED") {
+      console.log(
+        "[triage] session already RESOLVED — skipping Gemini/Grok",
+        sessionId,
+      );
+      return triageJsonResponse(serializeIncident(existingSession));
+    }
+
     const profileForTriage = await resolveIceProfile(userId, phoneIce);
     const iceSummary = summarizeIce(profileForTriage);
 
     const hasMedia =
       isNonEmptyMedia(imageBase64) || isNonEmptyMedia(audioBase64);
-    const lowBandwidth = !hasMedia;
 
     let crisisType: CrisisType;
     let classificationFailed = false;
-    let severityScore: number;
-    let dispatcherBrief: string;
+    let lowBandwidth = false;
+    let simulated = false;
 
-    if (simulate) {
-      crisisType = lowBandwidth ? "UNKNOWN" : "ENVIRONMENTAL_HAZARD";
-      severityScore = 8;
-      dispatcherBrief = lowBandwidth
-        ? `Simulated low-bandwidth SOS${gps ? ` at ${gps.lat}, ${gps.lng}` : ""}. Emergency units advised; AI path skipped (simulate=true).`
-        : `Simulated environmental hazard${gps ? ` near ${gps.lat}, ${gps.lng}` : ""}. Emergency units advised to approach with caution (simulate=true).`;
-    } else if (lowBandwidth) {
+    if (isSimulateCrisisType(simulate)) {
+      // Skip Gemini; force crisis type; Grok still runs with ICE (no canned brief).
+      simulated = true;
+      lowBandwidth = false;
+      classificationFailed = false;
+      crisisType = simulate;
+      console.log("[triage] simulate mode — skipping Gemini", { crisisType });
+    } else if (!hasMedia) {
       crisisType = "UNKNOWN";
-      const graded = await gradeWithGrok({
-        crisisType,
-        lowBandwidth,
-        gps,
-        iceSummary,
-        iceProfile: profileForTriage,
-      });
-      severityScore = graded.severityScore;
-      dispatcherBrief = graded.dispatcherBrief;
+      lowBandwidth = true;
+      classificationFailed = false;
     } else {
+      lowBandwidth = false;
       const classified = await classifyWithGemini(imageBase64, audioBase64);
       crisisType = classified.crisisType;
       classificationFailed = classified.classificationFailed;
 
       if (!(CRISIS_TYPES as readonly string[]).includes(crisisType)) {
-        // Failed/unparseable classify → UNKNOWN, never force ACTIVE_THREAT.
         crisisType = "UNKNOWN";
         classificationFailed = true;
       }
 
-      console.log("[triage] final classification", {
+      console.log("[triage] Gemini classification", {
         crisisType,
         classificationFailed,
         rawModelText: classified.rawModelText?.slice(0, 120),
         hasImage: isNonEmptyMedia(imageBase64),
         hasAudio: isNonEmptyMedia(audioBase64),
       });
-
-      const graded = await gradeWithGrok({
-        crisisType,
-        lowBandwidth,
-        gps,
-        iceSummary,
-        iceProfile: profileForTriage,
-      });
-      severityScore = graded.severityScore;
-      dispatcherBrief = graded.dispatcherBrief;
     }
 
-    const victimInstructions = VICTIM_INSTRUCTIONS[crisisType];
+    // Sticky crisis type across session ticks: don't erase a known label with UNKNOWN/fail.
+    if (
+      existingSession &&
+      existingSession.crisisType &&
+      existingSession.crisisType !== "UNKNOWN" &&
+      (crisisType === "UNKNOWN" || classificationFailed)
+    ) {
+      console.log("[triage] keeping existing crisisType", {
+        existing: existingSession.crisisType,
+        incoming: crisisType,
+        classificationFailed,
+      });
+      crisisType = existingSession.crisisType as CrisisType;
+      classificationFailed = false;
+    }
 
-    const triageFields = {
+    const { severityScore, dispatcherBrief } = await gradeWithGrok({
+      crisisType,
+      lowBandwidth,
+      gps,
+      iceSummary,
+      iceProfile: profileForTriage,
+    });
+
+    const victimInstructions = VICTIM_INSTRUCTIONS[crisisType];
+    const timelineEntry = buildTimelineEntry({
+      crisisType,
+      severityScore,
+      gps,
+      lowBandwidth,
+      classificationFailed,
+      now,
+    });
+
+    const latestFields = {
       userId,
       crisisType,
       severityScore,
@@ -663,26 +755,34 @@ export async function POST(request: Request) {
       ...(gps ? { gps } : {}),
       lowBandwidth,
       classificationFailed,
+      simulated,
       victimInstructions,
       iceProfile: profileForTriage,
+      lastSeenAt: now,
       ...(sessionId ? { sessionId } : {}),
     };
 
-    // Continuous telemetry: upsert by sessionId so later polls see Kiran's status.
-    // Do NOT $set status on update — preserves ACKNOWLEDGED after "Send Help".
-    const incident = sessionId
-      ? await ActiveIncident.findOneAndUpdate(
-          { sessionId },
-          {
-            $set: triageFields,
-            $setOnInsert: { status: "ACTIVE" },
-          },
-          { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
-        )
-      : await ActiveIncident.create({
-          ...triageFields,
-          status: "ACTIVE",
-        });
+    let incident;
+    if (sessionId && existingSession) {
+      // Update path: never $set status — preserves ACKNOWLEDGED / RESOLVED.
+      incident = await ActiveIncident.findOneAndUpdate(
+        { sessionId },
+        {
+          $set: latestFields,
+          $inc: { updateCount: 1 },
+          $push: { timeline: { $each: [timelineEntry], $slice: -50 } },
+        },
+        { returnDocument: "after" },
+      );
+    } else {
+      // Create path (with or without sessionId).
+      incident = await ActiveIncident.create({
+        ...latestFields,
+        status: "ACTIVE",
+        updateCount: 1,
+        timeline: [timelineEntry],
+      });
+    }
 
     if (!incident) {
       return NextResponse.json(
@@ -693,26 +793,7 @@ export async function POST(request: Request) {
 
     const lean =
       typeof incident.toObject === "function" ? incident.toObject() : incident;
-    const serialized = serializeIncident(lean);
-
-    return NextResponse.json(
-      {
-        incidentId: serialized._id,
-        sessionId: serialized.sessionId,
-        // Friend's frontend contract aliases:
-        classification: serialized.crisisType,
-        dispatcherStatus: serialized.dispatcherStatus,
-        crisisType: serialized.crisisType,
-        severityScore: serialized.severityScore,
-        dispatcherBrief: serialized.dispatcherBrief,
-        lowBandwidth: serialized.lowBandwidth,
-        classificationFailed: serialized.classificationFailed,
-        victimInstructions: serialized.victimInstructions,
-        iceProfile: serialized.iceProfile,
-        incident: serialized,
-      },
-      { status: 200 },
-    );
+    return triageJsonResponse(serializeIncident(lean));
   } catch (error) {
     console.error("[triage] unexpected error:", error);
     return NextResponse.json(
