@@ -44,6 +44,27 @@ const IncidentIceSnapshotSchema = new Schema(
   { _id: false },
 );
 
+const TimelineEntrySchema = new Schema(
+  {
+    ts: { type: Date, required: true },
+    crisisType: { type: String, enum: CRISIS_TYPES, required: true },
+    severityScore: { type: Number, min: 1, max: 10, required: true },
+    gps: {
+      type: new Schema(
+        {
+          lat: { type: Number, required: true },
+          lng: { type: Number, required: true },
+        },
+        { _id: false },
+      ),
+      default: null,
+    },
+    lowBandwidth: { type: Boolean, default: false },
+    classificationFailed: { type: Boolean, default: false },
+  },
+  { _id: false },
+);
+
 const ActiveIncidentSchema = new Schema(
   {
     userId: { type: String, required: true, index: true },
@@ -66,9 +87,13 @@ const ActiveIncidentSchema = new Schema(
     gps: { type: GpsSchema, required: false },
     lowBandwidth: { type: Boolean, default: false },
     classificationFailed: { type: Boolean, default: false },
+    simulated: { type: Boolean, default: false },
     victimInstructions: { type: String, required: true },
     /** ICE snapshot used for this SOS (phone and/or Mongo merge). */
     iceProfile: { type: IncidentIceSnapshotSchema, default: null },
+    lastSeenAt: { type: Date },
+    updateCount: { type: Number, default: 1 },
+    timeline: { type: [TimelineEntrySchema], default: [] },
     status: {
       type: String,
       enum: INCIDENT_STATUSES,
@@ -84,6 +109,10 @@ export type IActiveIncident = InferSchemaType<typeof ActiveIncidentSchema> & {
 
 export type ActiveIncidentDocument = mongoose.HydratedDocument<IActiveIncident>;
 
+// Drop stale compiled model so new fields (timeline, simulated, …) register in dev.
+if (mongoose.models.ActiveIncident) {
+  delete mongoose.models.ActiveIncident;
+}
+
 export const ActiveIncident: Model<IActiveIncident> =
-  mongoose.models.ActiveIncident ||
   mongoose.model<IActiveIncident>("ActiveIncident", ActiveIncidentSchema);
