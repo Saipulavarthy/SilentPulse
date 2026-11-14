@@ -17,12 +17,32 @@ type UiState =
   | "threat"
   | "low-bandwidth";
 
+type IceProfile = {
+  fullName: string;
+  age: string;
+  conditions: string;
+  allergies: string;
+};
+
 type SosPayload = {
   image: string;
   audio: string;
   gps: { lat: number; lng: number } | null;
-  userId: string;
+  iceProfile: IceProfile | null;
 };
+
+const ICE_STORAGE_KEY = "silentpulse_ice_profile";
+
+function readIceProfile(): IceProfile | null {
+  try {
+    const savedProfile = localStorage.getItem(ICE_STORAGE_KEY);
+    if (!savedProfile) return null;
+    return JSON.parse(savedProfile) as IceProfile;
+  } catch (error) {
+    console.error("Failed to parse ICE profile:", error);
+    return null;
+  }
+}
 
 function crisisTypeToUiState(crisisType: string): UiState {
   switch (crisisType) {
@@ -183,11 +203,13 @@ function SosPageContent() {
       stream = null;
       video.srcObject = null;
 
+      const iceProfile = readIceProfile();
+
       const payload: SosPayload = {
         image,
         audio,
         gps,
-        userId: "user_123",
+        iceProfile,
       };
 
       console.log("SOS Payload:", payload);

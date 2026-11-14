@@ -1,69 +1,137 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
-  return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
+import { FormEvent, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+
+const ICE_STORAGE_KEY = "silentpulse_ice_profile";
+
+type IceProfile = {
+  fullName: string;
+  age: string;
+  conditions: string;
+  allergies: string;
+};
+
+export default function OnboardingPage() {
+  const router = useRouter();
+  const [checkingProfile, setCheckingProfile] = useState(true);
+  const [fullName, setFullName] = useState("");
+  const [age, setAge] = useState("");
+  const [conditions, setConditions] = useState("");
+  const [allergies, setAllergies] = useState("");
+
+  useEffect(() => {
+    try {
+      const existing = localStorage.getItem(ICE_STORAGE_KEY);
+      if (existing) {
+        router.replace("/sos");
+        return;
+      }
+    } catch (error) {
+      console.error("Failed to read ICE profile:", error);
+    }
+    setCheckingProfile(false);
+  }, [router]);
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const profile: IceProfile = {
+      fullName: fullName.trim(),
+      age: age.trim(),
+      conditions: conditions.trim(),
+      allergies: allergies.trim(),
+    };
+
+    localStorage.setItem(ICE_STORAGE_KEY, JSON.stringify(profile));
+    router.push("/sos");
+  }
+
+  if (checkingProfile) {
+    return (
+      <main className="flex min-h-screen w-screen items-center justify-center bg-zinc-950 text-zinc-400">
+        <p className="text-sm tracking-wide">Loading SilentPulse...</p>
       </main>
-    </div>
+    );
+  }
+
+  return (
+    <main className="min-h-screen w-screen overflow-y-auto bg-zinc-950 px-5 py-10 text-white">
+      <div className="mx-auto flex w-full max-w-md flex-col gap-8">
+        <header className="space-y-3">
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-red-500">
+            SilentPulse
+          </p>
+          <h1 className="text-3xl font-bold tracking-tight text-white">
+            SilentPulse Setup
+          </h1>
+          <p className="text-sm leading-relaxed text-zinc-400">
+            Enter your emergency medical details (ICE). This is securely stored
+            on your device and sent to AI dispatchers during an SOS.
+          </p>
+        </header>
+
+        <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+          <label className="flex flex-col gap-2">
+            <span className="text-sm font-medium text-zinc-300">Full Name</span>
+            <input
+              type="text"
+              required
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              placeholder="Jane Doe"
+              className="rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-base text-white outline-none placeholder:text-zinc-600 focus:border-red-500"
+            />
+          </label>
+
+          <label className="flex flex-col gap-2">
+            <span className="text-sm font-medium text-zinc-300">Age</span>
+            <input
+              type="number"
+              required
+              min={1}
+              max={120}
+              value={age}
+              onChange={(e) => setAge(e.target.value)}
+              placeholder="28"
+              className="rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-base text-white outline-none placeholder:text-zinc-600 focus:border-red-500"
+            />
+          </label>
+
+          <label className="flex flex-col gap-2">
+            <span className="text-sm font-medium text-zinc-300">
+              Pre-existing Conditions
+            </span>
+            <textarea
+              required
+              rows={3}
+              value={conditions}
+              onChange={(e) => setConditions(e.target.value)}
+              placeholder="Asthma, Type 2 diabetes..."
+              className="resize-none rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-base text-white outline-none placeholder:text-zinc-600 focus:border-red-500"
+            />
+          </label>
+
+          <label className="flex flex-col gap-2">
+            <span className="text-sm font-medium text-zinc-300">Allergies</span>
+            <textarea
+              required
+              rows={3}
+              value={allergies}
+              onChange={(e) => setAllergies(e.target.value)}
+              placeholder="Penicillin, peanuts..."
+              className="resize-none rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-base text-white outline-none placeholder:text-zinc-600 focus:border-red-500"
+            />
+          </label>
+
+          <button
+            type="submit"
+            className="mt-2 w-full rounded-2xl bg-red-600 px-4 py-4 text-lg font-bold tracking-wide text-white transition hover:bg-red-500 active:scale-[0.98]"
+          >
+            Save & Arm SilentPulse
+          </button>
+        </form>
+      </div>
+    </main>
   );
 }
