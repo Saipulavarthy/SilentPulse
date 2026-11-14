@@ -22,6 +22,7 @@ type Props = {
 const SOURCE_LABEL: Record<PlanSource, string> = {
   buildingNotes: 'building',
   callerProfile: 'caller profile',
+  callerDevice: 'caller device',
   perception: 'perception',
   triage: 'triage',
   timeline: 'timeline',

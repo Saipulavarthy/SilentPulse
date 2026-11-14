@@ -19,6 +19,7 @@ import {
   availableSources,
   isStealth,
   planFacts,
+  profileTerms,
   situationLine,
   validatePlan,
 } from '@/lib/responsePlan';
@@ -38,17 +39,17 @@ const DEFAULT_THINKING_LEVEL = 'minimal';
 const SYSTEM_PROMPT = `You turn one incident's data into a campus dispatcher's working notes. Be specific to THIS incident; the dispatcher already knows standard procedure.
 Output:
 - radioBrief: at most 2 short sentences of plain spoken English to read over the radio: what is happening, where (building name), how many callers, and the key hazard. No IDs, no jargon.
-- risks: at most ${MAX_RISKS}, most important first. A risk is something that could go wrong or slow the response, not a description of the scene.
+- risks: at most ${MAX_RISKS}, most important first. Each risk states its consequence for responders or the caller (what could go wrong, be delayed or be missed). A fact with no consequence, such as which way an entrance faces, is not a risk; use it in an action or leave it out.
 - actions: at most ${MAX_ACTIONS} imperative steps, in order.
-- unknowns: at most ${MAX_UNKNOWNS} short questions the dispatcher still needs answered, most important first.
+- unknowns: at most ${MAX_UNKNOWNS} short questions about the scene, most important first: location, people involved, hazards, what is happening. Never ask about or speculate from the caller's medical profile.
 Rules:
-1. Every risk and action must come from one specific fact in the input and set "source" to the input key it came from: buildingNotes, callerProfile, perception, triage, timeline or otherCallers.
+1. Every risk and action must come from one specific fact in the input and set "source" to the input key it came from: buildingNotes, callerProfile, callerDevice, perception, triage, timeline or otherCallers.
 2. Leave out anything that would apply to any incident of this type: protective gear, radios, perimeters, staging, "use caution", "dispatch units". Fewer items is better than generic ones.
 3. Use only the input. Never invent floors, rooms, suspects, weapons, injuries, people counts or unit names; put what is missing in unknowns.
 4. If sceneStatus is present, include it in radioBrief.
 5. If severityTier is "low", the first action is to review the alert; recommend review, not dispatch.
 6. callerProfile belongs to the caller (whose phone sent the SOS). Use it for the person in distress only if triage and perception do not indicate someone else; otherwise call it the caller's and ask about the patient's history in unknowns. Never call the caller "patient" unless they are clearly the one in distress. Mention the profile only if it changes what responders do.
-7. If callerDevice is present (stealth mode), never suggest calling, texting, messaging or alerting the caller, or anything that makes their phone ring, vibrate, light up or sound.
+7. If callerDevice is present (stealth mode), never suggest calling, texting, messaging or alerting the caller, or anything that makes their phone ring, vibrate, light up or sound. Tag any item about stealth mode with source callerDevice, not callerProfile.
 8. Each risk, action and unknown under 20 words.`;
 
 const ITEM: ResponseSchema = {
@@ -160,6 +161,7 @@ export async function POST(request: Request): Promise<Response> {
   const checked = validatePlan(parsed, availableSources(facts), {
     stealth: isStealth(input.incident),
     unverified: input.incident.lowBandwidth || Boolean(input.incident.classificationFailed),
+    profileTerms: profileTerms(input.incident),
   });
   if ('problems' in checked) {
     return fail('invalid_output', `Gemini output did not match the plan format: ${checked.problems.slice(0, 3).join('; ')}.`);

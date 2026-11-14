@@ -66,7 +66,19 @@ function sentences(s: string): string[] {
 /** Caller's device is silenced during active threats: no calls, texts or audible alerts. */
 export const isStealth = (incident: Pick<PlanIncident, 'crisisType'>) => incident.crisisType === 'ACTIVE_THREAT';
 
-const CONTACT = /\b(call(ing)?\s*back|callback|re-?call|(call|phone|ring|text|sms|message|page|alert|notify|contact)(ing)?\s+(the\s+)?(caller|user|reporting party|sender))\b|\baudible\b/i;
+const CONTACT = new RegExp(
+  [
+    String.raw`\b(call(ing)?\s*back|callback|re-?call)\b`,
+    // "text the caller", "message the user", "contact caller"…
+    String.raw`\b(call|phone|ring|text|sms|message|page|alert|notify|contact)(ing)?\s+(the\s+)?(caller|user|reporting party|sender)\b`,
+    // Channels: "via text", "by SMS", "through a message", "send a text", "text only".
+    String.raw`\b(via|by|over|through)\s+(a\s+)?(text|sms|messag\w*|phone call|call|push notification)\b`,
+    String.raw`\bsend\s+(a\s+|an\s+)?(text|sms|message|notification|alert)\b`,
+    String.raw`\btext(s|ing)?\s+only\b`,
+    String.raw`\baudible\b`,
+  ].join('|'),
+  'i',
+);
 const NEGATED = /\b(do\s+not|don'?t|not|never|avoid|without|no)\b/i;
 /** Suggests contacting a caller in stealth mode, and is not a prohibition ("Do not call back"). */
 const contactsCaller = (s: string) => CONTACT.test(s) && !NEGATED.test(s);
@@ -74,6 +86,32 @@ const contactsCaller = (s: string) => CONTACT.test(s) && !NEGATED.test(s);
 /** Advice that fits any incident of the type, which the dispatcher already knows. */
 const GENERIC =
   /\b(protective (gear|equipment)|body armou?r|ballistic|ppe|radios?\b|radio contact|perimeter|stage (units|nearby|at a safe)|staging area|use caution|proceed with caution|approach (with )?caution|exercise caution|stay safe|dispatch (units|appropriate)|standard (police|medical) (gear|kit|equipment))/i;
+
+/** Items about the caller's phone being silenced: their source is callerDevice, whatever the model said. */
+const STEALTH_TOPIC =
+  /stealth|call(ing)?\s*back|callback|\b(call|text|messag|alert|ring)\w*\s+(the\s+)?(caller|sos phone|caller'?s phone)\b|\bphone\s+(ring|vibrat|light)/i;
+
+/**
+ * A risk has to say what it leads to for responders or the caller. Items with none of these
+ * words only restate a fact ("Main entrance faces Southwest") and are dropped as risks.
+ */
+const CONSEQUENCE =
+  /\b(may|might|could|can|cannot|can't|unable|will|would|risk|delay|slow|prevent|block|trap|harm|danger|unsafe|threat|expos|lose|loss|lost|worsen|escalat|complicat|hinder|limit|difficult|harder|confus|miss|without|need|requir|compromis|vulnerab|so )\w*/i;
+
+/** Words too general to identify a profile item ("type" in "Type 1 diabetes"). */
+const PROFILE_STOPWORDS = new Set(['type', 'with', 'from', 'auto', 'injector', 'other', 'chronic', 'severe', 'mild']);
+
+/**
+ * Terms for the caller's conditions, allergies and medications (whole items and their
+ * distinctive words), used to drop unknowns that speculate from the medical profile.
+ */
+export function profileTerms(incident: PlanIncident): string[] {
+  const ice = incident.iceProfile;
+  if (!ice) return [];
+  const items = [...ice.conditions, ...ice.allergies, ...(ice.medications ?? [])].map((s) => s.toLowerCase().trim()).filter(Boolean);
+  const words = items.flatMap((s) => s.split(/[^a-z]+/)).filter((w) => w.length >= 5 && !PROFILE_STOPWORDS.has(w));
+  return [...new Set([...items, ...words])];
+}
 
 /** "Scene is verified" and similar: the pipeline can never verify a scene. */
 const CLAIMS_VERIFIED = /\b(?<!un)verified\b|\bconfirmed (scene|threat|emergency)\b/i;
@@ -199,12 +237,14 @@ export type ValidatedPlan = { plan: ResponsePlan; shortened: number; dropped: st
  * Checks parsed model output. Structural problems (missing radio brief, lists that are not
  * lists) reject the plan. Individual items are dropped, not the plan, when their source is
  * not in the input, they are generic, they claim the scene is verified, they would expose a
- * caller in stealth mode, or they exceed the per-list limit. Long items are shortened.
+ * caller in stealth mode, a risk states no consequence, an unknown speculates from the caller's
+ * medical profile, or they exceed the per-list limit. Stealth-mode items are retagged to
+ * callerDevice. Long items are shortened. `dropped` lists every removal and retag.
  */
 export function validatePlan(
   value: unknown,
   sources: Set<PlanSource>,
-  opts: { stealth: boolean; unverified: boolean },
+  opts: { stealth: boolean; unverified: boolean; profileTerms: string[] },
 ): ValidatedPlan | { problems: string[] } {
   if (typeof value !== 'object' || value === null) return { problems: ['not an object'] };
   const v = value as Record<string, unknown>;
@@ -226,7 +266,12 @@ export function validatePlan(
     for (const raw of v[key] as unknown[]) {
       const item = (raw ?? {}) as Record<string, unknown>;
       const text = isText(item.text) ? item.text.trim() : '';
-      const source = item.source as PlanSource;
+      let source = item.source as PlanSource;
+      // Stealth-mode items belong to callerDevice, even when the model tagged them otherwise.
+      if (text && sources.has('callerDevice') && source !== 'callerDevice' && STEALTH_TOPIC.test(text)) {
+        dropped.push(`${key}: retagged ${String(item.source)} → callerDevice: ${text.slice(0, 80)}`);
+        source = 'callerDevice';
+      }
       const why = !text
         ? 'empty'
         : !PLAN_SOURCES.includes(source)
@@ -239,7 +284,9 @@ export function validatePlan(
                 ? 'verification claim'
                 : opts.stealth && contactsCaller(text)
                   ? 'contacts stealth caller'
-                  : kept.length >= max
+                  : key === 'risks' && !CONSEQUENCE.test(text)
+                    ? 'no consequence stated'
+                    : kept.length >= max
                     ? `over ${max}`
                     : null;
       if (why) dropped.push(`${key}: ${why}: ${text.slice(0, 80)}`);
@@ -264,7 +311,15 @@ export function validatePlan(
   if (briefSentences.length > MAX_BRIEF_SENTENCES) dropped.push(`radioBrief: over ${MAX_BRIEF_SENTENCES} sentences`);
   const radioBrief = fit(briefSentences.slice(0, MAX_BRIEF_SENTENCES).join(' '), MAX_WORDS * 2);
 
-  const unknowns = (v.unknowns as unknown[]).filter(isText).map((s) => s.trim());
+  // Unknowns are about the scene; never speculation from the caller's medical profile.
+  const unknowns = (v.unknowns as unknown[])
+    .filter(isText)
+    .map((s) => s.trim())
+    .filter((q) => {
+      const term = opts.profileTerms.find((t) => q.toLowerCase().includes(t));
+      if (term) dropped.push(`unknowns: mentions caller profile ("${term}"): ${q.slice(0, 80)}`);
+      return !term;
+    });
   if (unknowns.length > MAX_UNKNOWNS) dropped.push(`unknowns: over ${MAX_UNKNOWNS}`);
 
   return {

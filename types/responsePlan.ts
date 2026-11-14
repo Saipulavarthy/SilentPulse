@@ -1,7 +1,16 @@
 import type { Building, CrisisType, IncidentStatus } from './incident';
 
 /** Where a plan item came from. Every risk and action must name one that exists in the input. */
-export const PLAN_SOURCES = ['buildingNotes', 'callerProfile', 'perception', 'triage', 'timeline', 'otherCallers'] as const;
+export const PLAN_SOURCES = [
+  'buildingNotes',
+  'callerProfile',
+  /** Stealth mode on the caller's phone (active threats). */
+  'callerDevice',
+  'perception',
+  'triage',
+  'timeline',
+  'otherCallers',
+] as const;
 export type PlanSource = (typeof PLAN_SOURCES)[number];
 
 export type PlanItem = { text: string; source: PlanSource };
