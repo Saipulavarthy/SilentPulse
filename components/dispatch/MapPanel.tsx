@@ -17,7 +17,7 @@ function MapLoading() {
   );
 }
 
-// Leaflet touches `window` at import time, so the map is loaded in the browser only.
+// MapLibre needs `window` and WebGL, so the map is loaded in the browser only.
 const IncidentMap = dynamic(() => import('./IncidentMap'), {
   ssr: false,
   loading: MapLoading,

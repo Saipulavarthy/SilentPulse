@@ -1,9 +1,10 @@
 import type { Incident } from '@/types/incident';
 
 // MOCK DATA: every person, user ID, phone number, medical detail and event below is
-// fictional. Phone numbers use the reserved 555-01xx range. GPS points are approximate
-// locations of real UMass Amherst buildings. Timestamps are relative to module load
-// so the feed always looks like the last 10 minutes.
+// fictional. Phone numbers use the reserved 555-01xx range. GPS points sit inside the
+// real building footprints (OpenStreetMap). groundElevationM values are USGS ground
+// elevations; altitude and accuracy readings are invented, in the same datum.
+// Timestamps are relative to module load so the feed always looks like the last 10 minutes.
 
 const minsAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
 
@@ -14,14 +15,15 @@ export const mockIncidents: Incident[] = [
     crisisType: 'ACTIVE_THREAT',
     severityScore: 9,
     dispatcherBrief:
-      'Caller reports armed individual on Du Bois Library floor 9. Caller is hiding in a study room, silent. Dispatch UMPD immediately; approach from stairwells.',
+      'Caller reports armed individual inside Du Bois Library. Caller is hiding, silent. Dispatch UMPD immediately; approach from stairwells.',
     sceneSummary: 'Whispered audio: "he has a gun"; footsteps and shouting in background.',
-    gps: { lat: 42.38972, lng: -72.52837 },
+    gps: { lat: 42.38973, lng: -72.52825, accuracy: 12, altitude: 130 },
     building: {
       name: 'W.E.B. Du Bois Library',
       type: 'Library',
-      floors: 26,
+      floors: 28,
       notes: 'Elevators only stop on alternate floors above 4. Two stairwells.',
+      groundElevationM: 72,
     },
     iceProfile: {
       name: 'Avery James',
@@ -37,6 +39,36 @@ export const mockIncidents: Incident[] = [
     updatedAt: minsAgo(0.5),
   },
   {
+    // Second caller in the same building as mock-001: exercises shared-building badges.
+    _id: 'mock-009',
+    userId: 'user-rwalsh',
+    crisisType: 'MEDICAL_CRISIS',
+    severityScore: 8,
+    dispatcherBrief:
+      'Caller reports a person injured while fleeing inside Du Bois Library; heavy bleeding from a leg wound. Stage EMS until the scene is secured.',
+    sceneSummary: 'Audio: caller breathing heavily, says "someone is bleeding"; alarm in background.',
+    gps: { lat: 42.38965, lng: -72.52832, accuracy: 15 },
+    building: {
+      name: 'W.E.B. Du Bois Library',
+      type: 'Library',
+      floors: 28,
+      notes: 'Elevators only stop on alternate floors above 4. Two stairwells.',
+      groundElevationM: 72,
+    },
+    iceProfile: {
+      name: 'Riley Walsh',
+      age: 21,
+      conditions: [],
+      allergies: ['Ibuprofen'],
+      medications: [],
+      emergencyContact: { name: 'Morgan Walsh', phone: '413-555-0109' },
+    },
+    lowBandwidth: false,
+    status: 'ACTIVE',
+    createdAt: minsAgo(0.3),
+    updatedAt: minsAgo(0.3),
+  },
+  {
     _id: 'mock-002',
     userId: 'user-mokafor',
     crisisType: 'MEDICAL_CRISIS',
@@ -44,7 +76,8 @@ export const mockIncidents: Incident[] = [
     dispatcherBrief:
       'Male collapsed on basketball court, unresponsive, bystander starting CPR. Possible cardiac arrest. Send ALS; AED is at the front desk.',
     sceneSummary: 'Image shows person on gym floor, bystanders kneeling beside him.',
-    gps: { lat: 42.38665, lng: -72.53285 },
+    // Altitude without groundElevationM: no floor estimate should be shown.
+    gps: { lat: 42.38886, lng: -72.53167, accuracy: 8, altitude: 66 },
     building: {
       name: 'Recreation Center',
       type: 'Athletics',
@@ -72,12 +105,13 @@ export const mockIncidents: Incident[] = [
     dispatcherBrief:
       'Strong chemical odor and visible vapor in 7th-floor lab corridor. Caller reports dizziness. Notify Amherst FD hazmat and EH&S; evacuate floors 6-8.',
     sceneSummary: 'Image shows haze in hallway; audio has fire alarm sounding.',
-    gps: { lat: 42.39443, lng: -72.52677 },
+    gps: { lat: 42.39391, lng: -72.52766, accuracy: 18, altitude: 96 },
     building: {
       name: 'Lederle Graduate Research Tower',
       type: 'Research / Labs',
       floors: 16,
       notes: 'Chemistry labs on upper floors. Fume hood shutoffs per floor.',
+      groundElevationM: 70.7,
     },
     iceProfile: {
       name: 'Priya Nair',
@@ -99,12 +133,13 @@ export const mockIncidents: Incident[] = [
     severityScore: 5,
     dispatcherBrief:
       'Low-bandwidth SOS: no image or audio received. Location only. Treat as unknown emergency; attempt callback and send unit to check.',
-    gps: { lat: 42.38163, lng: -72.53059 },
+    gps: { lat: 42.38158, lng: -72.52931, accuracy: 35, altitude: 99 },
     building: {
-      name: 'Washington Tower',
+      name: 'Washington Hall',
       type: 'Residence Hall',
       floors: 22,
       notes: 'Southwest Residential Area. Card access only.',
+      groundElevationM: 62,
     },
     iceProfile: {
       name: 'Lin Chen',
@@ -127,7 +162,7 @@ export const mockIncidents: Incident[] = [
     dispatcherBrief:
       'Suspected allergic reaction after eating; lip swelling, hives, no airway compromise yet. Caller has an EpiPen. Send BLS.',
     sceneSummary: 'Audio: caller says "my lips are swelling"; dining hall noise.',
-    gps: { lat: 42.39365, lng: -72.52448 },
+    gps: { lat: 42.39326, lng: -72.52511 },
     building: {
       name: 'Worcester Dining Commons',
       type: 'Dining Hall',
@@ -154,7 +189,7 @@ export const mockIncidents: Incident[] = [
     dispatcherBrief:
       'Caller reports being followed by an unknown person between Morrill and the Campus Pond. No weapon seen. Caller is walking toward Student Union.',
     sceneSummary: 'Audio: caller describes a man in a dark hoodie following them.',
-    gps: { lat: 42.38953, lng: -72.52487 },
+    gps: { lat: 42.38947, lng: -72.52434 },
     building: {
       name: 'Morrill Science Center',
       type: 'Academic / Labs',
@@ -181,7 +216,7 @@ export const mockIncidents: Incident[] = [
     dispatcherBrief:
       'Large tree limb down across the Campus Pond path, blocking foot traffic. No injuries. Notify Physical Plant.',
     sceneSummary: 'Image shows a fallen branch across a paved walkway by the pond.',
-    gps: { lat: 42.38876, lng: -72.52700 },
+    gps: { lat: 42.38876, lng: -72.527, accuracy: 25 },
     iceProfile: {
       name: 'Emma Kowalski',
       conditions: [],
@@ -202,7 +237,7 @@ export const mockIncidents: Incident[] = [
     dispatcherBrief:
       'Twisted ankle on ILC stairs. Conscious, able to bear partial weight. Wants a ride to University Health Services.',
     sceneSummary: 'Image shows swollen ankle; caller sitting on stairs.',
-    gps: { lat: 42.39093, lng: -72.52553 },
+    gps: { lat: 42.39108, lng: -72.52593 },
     building: {
       name: 'Integrative Learning Center',
       type: 'Academic',

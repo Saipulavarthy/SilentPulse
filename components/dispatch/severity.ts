@@ -14,10 +14,19 @@ export const TIERS: SeverityTier[] = ['lethal', 'critical', 'urgent', 'low'];
  */
 export const TIER_STYLES: Record<
   SeverityTier,
-  { label: string; square: string; edge: string; pulse: string; response: string }
+  {
+    label: string;
+    square: string;
+    edge: string;
+    pulse: string;
+    response: string;
+    /** Same colour as `square`, as hex for MapLibre paint properties. */
+    hex: string;
+  }
 > = {
   lethal: {
     label: 'Lethal',
+    hex: '#dc2626',
     square: 'bg-red-600 text-white',
     edge: 'border-l-red-600',
     pulse: 'motion-safe:animate-pulse',
@@ -25,6 +34,7 @@ export const TIER_STYLES: Record<
   },
   critical: {
     label: 'Critical',
+    hex: '#f97316',
     square: 'bg-orange-500 text-black',
     edge: 'border-l-orange-500',
     pulse: '',
@@ -32,6 +42,7 @@ export const TIER_STYLES: Record<
   },
   urgent: {
     label: 'Urgent',
+    hex: '#facc15',
     square: 'bg-yellow-400 text-black',
     edge: 'border-l-yellow-400',
     pulse: '',
@@ -39,6 +50,7 @@ export const TIER_STYLES: Record<
   },
   low: {
     label: 'Low',
+    hex: '#16a34a',
     square: 'bg-green-600 text-white',
     edge: 'border-l-green-600',
     pulse: '',
@@ -108,6 +120,22 @@ export const FILTERS: { key: QueueFilter; label: string; status?: IncidentStatus
 export function applyFilter(incidents: Incident[], filter: QueueFilter): Incident[] {
   const status = FILTERS.find((f) => f.key === filter)?.status;
   return sortIncidents(status ? incidents.filter((i) => i.status === status) : incidents);
+}
+
+const FLOOR_HEIGHT_M = 4;
+
+/**
+ * Rough floor range from GPS altitude above the building's ground elevation:
+ * floor(Δ / 4 m) + 1 (ground floor = 1), ±1 floor, clamped to 1..building.floors.
+ * Null unless altitude, ground elevation and building are all present.
+ */
+export function estimateFloorRange(i: Incident): [number, number] | null {
+  const ground = i.building?.groundElevationM;
+  if (i.gps.altitude === undefined || ground === undefined || !i.building) return null;
+  const floors = Math.max(1, i.building.floors);
+  const clamp = (n: number) => Math.min(floors, Math.max(1, n));
+  const est = Math.floor((i.gps.altitude - ground) / FLOOR_HEIGHT_M) + 1;
+  return [clamp(est - 1), clamp(est + 1)];
 }
 
 const pad = (n: number) => String(n).padStart(2, '0');

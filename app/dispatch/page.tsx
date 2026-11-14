@@ -59,8 +59,8 @@ export default function DispatchPage() {
   const onKeyDown = useEffectEvent((e: KeyboardEvent) => {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     const target = e.target as HTMLElement | null;
-    // Leave typing and Leaflet's own arrow-key panning alone.
-    if (target?.closest('input, textarea, select, [contenteditable="true"], .leaflet-container')) return;
+    // Leave typing and the map's own arrow-key panning alone.
+    if (target?.closest('input, textarea, select, [contenteditable="true"], .maplibregl-map')) return;
 
     switch (e.key.toLowerCase()) {
       case 'arrowdown':
@@ -90,7 +90,7 @@ export default function DispatchPage() {
   return (
     <>
       <TopBar incidents={incidents} now={now} syncedAt={startedAt} />
-      <main className="grid min-h-0 flex-1 grid-cols-[500px_minmax(0,1fr)_360px]">
+      <main className="grid min-h-0 flex-1 grid-cols-[420px_minmax(0,1fr)_360px]">
         <IncidentQueue
           incidents={visible}
           counts={counts}

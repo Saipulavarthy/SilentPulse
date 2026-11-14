@@ -26,7 +26,8 @@ type Props = {
   now: number | null;
 };
 
-const COLS = 'grid grid-cols-[22px_58px_124px_minmax(0,1fr)_58px_72px] items-center gap-x-1.5';
+const COLS =
+  'grid grid-cols-[20px_54px_minmax(0,1.1fr)_minmax(0,1fr)_50px_70px] items-center gap-x-1.5';
 const rowId = (id: string) => `queue-row-${id}`;
 
 export function IncidentQueue({ incidents, counts, filter, onFilter, selectedId, onSelect, now }: Props) {
@@ -98,8 +99,12 @@ export function IncidentQueue({ incidents, counts, filter, onFilter, selectedId,
               <span className={`${MONO} text-[12px] ${selected ? 'text-neutral-100' : 'text-neutral-400'}`}>
                 {incidentNumber(incident._id)}
               </span>
-              <span className="truncate">{typeLabel(incident)}</span>
-              <span className="truncate text-neutral-400">{incident.building?.name ?? 'Unknown location'}</span>
+              <span className="truncate" title={typeLabel(incident)}>
+                {typeLabel(incident)}
+              </span>
+              <span className="truncate text-neutral-400" title={incident.building?.name ?? 'Unknown location'}>
+                {incident.building?.name ?? 'Unknown location'}
+              </span>
               <span className={`${MONO} text-right text-[12px]`}>{elapsed(incident.createdAt, now)}</span>
               <span className={`flex items-center gap-1.5 ${MONO} text-[10px]`}>
                 <span className={incident.status === 'ACTIVE' ? 'text-neutral-200' : 'text-neutral-500'}>

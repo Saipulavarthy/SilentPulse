@@ -19,6 +19,6 @@ Never edit `app/sos/`, `app/api/triage/`, `models/`, or `lib/mongodb.ts` (teamma
 
 ## Rules
 
-- Before writing code, check the installed Next.js, React and react-leaflet versions in `package.json` / `node_modules` and follow that version's conventions (see `node_modules/next/dist/docs/`).
+- Before writing code, check the installed Next.js, React and maplibre-gl versions in `package.json` / `node_modules` and follow that version's conventions (see `node_modules/next/dist/docs/`).
 - Dashboard is dark mode only and desktop only.
 - Dashboard runs entirely on mock data (`app/dispatch/mockIncidents.ts`) until Kiran says the API is ready.

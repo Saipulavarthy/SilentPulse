@@ -3,6 +3,7 @@ import type { Incident } from '@/types/incident';
 import {
   STATUS_LONG,
   elapsed,
+  estimateFloorRange,
   incidentNumber,
   tierStyle,
   typeLabel,
@@ -30,6 +31,7 @@ export function IncidentDetail({ incident, now, onAcknowledge, onResolve }: Prop
   const { building, iceProfile: ice } = incident;
   const canAck = incident.status === 'ACTIVE';
   const canResolve = incident.status !== 'RESOLVED';
+  const floorRange = estimateFloorRange(incident);
 
   return (
     <section className="flex min-h-0 flex-col border-l border-neutral-800" aria-label="Incident detail">
@@ -83,11 +85,24 @@ export function IncidentDetail({ incident, now, onAcknowledge, onResolve }: Prop
             {building && <Row label="Type">{building.type}</Row>}
             {building && <Row label="Floors"><span className={MONO}>{building.floors}</span></Row>}
             {building?.notes && <Row label="Notes">{building.notes}</Row>}
+            {floorRange && (
+              <Row label="Est. floor">
+                <span className={MONO}>
+                  {floorRange[0] === floorRange[1] ? floorRange[0] : `${floorRange[0]}–${floorRange[1]}`}
+                </span>{' '}
+                <span className="text-neutral-500">(low confidence)</span>
+              </Row>
+            )}
             <Row label="Coords">
               <span className={MONO}>
                 {incident.gps.lat.toFixed(5)}, {incident.gps.lng.toFixed(5)}
               </span>
             </Row>
+            {incident.gps.accuracy !== undefined && (
+              <Row label="GPS accuracy">
+                <span className={MONO}>±{Math.round(incident.gps.accuracy)} m</span>
+              </Row>
+            )}
           </Grid>
         </Section>
 

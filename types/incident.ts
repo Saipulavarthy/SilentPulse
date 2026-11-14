@@ -27,6 +27,8 @@ export interface Building {
   type: string;
   floors: number;
   notes?: string;
+  /** Ground elevation at the building, metres. Must use the same vertical datum as gps.altitude. */
+  groundElevationM?: number;
 }
 
 export interface Incident {
@@ -41,6 +43,10 @@ export interface Incident {
   gps: {
     lat: number;
     lng: number;
+    /** Horizontal accuracy radius, metres (Geolocation API coords.accuracy). */
+    accuracy?: number;
+    /** Altitude, metres, as reported by the device (Geolocation API coords.altitude). */
+    altitude?: number;
   };
   building?: Building;
   /** Snapshot of the user's ICE profile at the time of the SOS. */
