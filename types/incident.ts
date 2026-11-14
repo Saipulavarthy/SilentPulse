@@ -46,6 +46,9 @@ export type SimulateCrisisType =
   | "MEDICAL_CRISIS"
   | "ACTIVE_THREAT";
 
+/** Session trend from Grok when comparing against prior ticks. */
+export type Trend = "new" | "worsening" | "stable" | "improving";
+
 export interface TimelineEntry {
   /** ISO 8601 string. */
   ts: string;
@@ -54,6 +57,8 @@ export interface TimelineEntry {
   gps: { lat: number; lng: number } | null;
   lowBandwidth: boolean;
   classificationFailed: boolean;
+  /** Gemini one-sentence scene description for this tick. */
+  sceneSummary?: string;
 }
 
 export interface Incident {
@@ -66,6 +71,12 @@ export interface Incident {
   dispatcherBrief: string;
   /** One line on what Gemini saw/heard. Absent for low-bandwidth SOS. */
   sceneSummary?: string;
+  /** Short concrete observations from Gemini (smoke haze, alarm tone, …). */
+  cues?: string[];
+  /** Grok evidence→risk strings explaining the severity. */
+  reasons?: string[];
+  /** Session trend vs prior ticks. */
+  trend?: Trend;
   /** Optional — phone may omit GPS. */
   gps?: {
     lat: number;
@@ -79,8 +90,12 @@ export interface Incident {
   classificationFailed?: boolean;
   /** True when this incident was created/updated via simulate=<crisisType>. */
   simulated?: boolean;
-  /** Static instructions shown to the victim on-device. */
-  victimInstructions: string;
+  /**
+   * Victim-facing steps (AI-generated when Grok succeeds).
+   * Falls back to VICTIM_INSTRUCTIONS[crisisType] as a single joined string
+   * or a string[] of short imperatives.
+   */
+  victimInstructions: string | string[];
   status: IncidentStatus;
   /** Derived for the phone UI (ACTIVE→reviewing, ACKNOWLEDGED→dispatched). */
   dispatcherStatus: DispatcherStatus;
@@ -141,7 +156,7 @@ export type TriageRequest = {
   simulate?: SimulateCrisisType | string | boolean;
 };
 
-/** Static victim-facing copy keyed by crisis type (not AI-generated). */
+/** Fallback victim-facing copy keyed by crisis type when Grok omits instructions. */
 export const VICTIM_INSTRUCTIONS: Record<CrisisType, string> = {
   ENVIRONMENTAL_HAZARD:
     "Move away from smoke or hazard if you can do so safely. Stay low. Keep your phone on so responders can find you.",

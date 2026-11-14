@@ -3,6 +3,7 @@ import type {
   Incident,
   IceProfile,
   TimelineEntry,
+  Trend,
 } from "@/types/incident";
 import {
   statusToDispatcherStatus,
@@ -32,6 +33,7 @@ type LeanTimelineEntry = {
   gps?: { lat: number; lng: number } | null;
   lowBandwidth?: boolean | null;
   classificationFailed?: boolean | null;
+  sceneSummary?: string | null;
 };
 
 type LeanIncident = {
@@ -42,13 +44,16 @@ type LeanIncident = {
   severityScore: number;
   dispatcherBrief: string;
   sceneSummary?: string | null;
+  cues?: string[] | null;
+  reasons?: string[] | null;
+  trend?: Trend | string | null;
   gps?: { lat: number; lng: number } | null;
   building?: Incident["building"];
   iceProfile?: LeanIce;
   lowBandwidth?: boolean | null;
   classificationFailed?: boolean | null;
   simulated?: boolean | null;
-  victimInstructions?: string | null;
+  victimInstructions?: string | string[] | null;
   status: Incident["status"] | string;
   lastSeenAt?: Date | string | null;
   updateCount?: number | null;
@@ -103,7 +108,26 @@ function serializeTimeline(
     gps: e.gps ? { lat: e.gps.lat, lng: e.gps.lng } : null,
     lowBandwidth: Boolean(e.lowBandwidth),
     classificationFailed: Boolean(e.classificationFailed),
+    ...(e.sceneSummary ? { sceneSummary: e.sceneSummary } : {}),
   }));
+}
+
+function serializeVictimInstructions(
+  value: string | string[] | null | undefined,
+  crisisType: CrisisType,
+): string | string[] {
+  if (Array.isArray(value)) {
+    const cleaned = value
+      .filter((s): s is string => typeof s === "string")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (cleaned.length > 0) return cleaned;
+  } else if (typeof value === "string" && value.trim().length > 0) {
+    return value;
+  }
+  return (
+    VICTIM_INSTRUCTIONS[crisisType] || VICTIM_INSTRUCTIONS.UNKNOWN
+  );
 }
 
 /** Map a Mongo lean/hydrated ActiveIncident into the shared API Incident contract. */
@@ -118,16 +142,19 @@ export function serializeIncident(doc: LeanIncident): Incident {
     severityScore: doc.severityScore,
     dispatcherBrief: doc.dispatcherBrief,
     ...(doc.sceneSummary ? { sceneSummary: doc.sceneSummary } : {}),
+    cues: Array.isArray(doc.cues) ? doc.cues : [],
+    reasons: Array.isArray(doc.reasons) ? doc.reasons : [],
+    trend: (doc.trend as Trend) || "new",
     ...(doc.gps ? { gps: { lat: doc.gps.lat, lng: doc.gps.lng } } : {}),
     ...(doc.building ? { building: doc.building } : {}),
     iceProfile: serializeIce(doc.iceProfile ?? null),
     lowBandwidth: Boolean(doc.lowBandwidth),
     classificationFailed: Boolean(doc.classificationFailed),
     simulated: Boolean(doc.simulated),
-    victimInstructions:
-      doc.victimInstructions ||
-      VICTIM_INSTRUCTIONS[crisisType] ||
-      VICTIM_INSTRUCTIONS.UNKNOWN,
+    victimInstructions: serializeVictimInstructions(
+      doc.victimInstructions,
+      crisisType,
+    ),
     status,
     dispatcherStatus: statusToDispatcherStatus(status),
     ...(doc.lastSeenAt ? { lastSeenAt: toIso(doc.lastSeenAt) } : {}),

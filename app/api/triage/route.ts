@@ -1,5 +1,7 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextResponse } from "next/server";
+import { classifyWithGemini } from "@/lib/ai/gemini";
+import { gradeWithGrok, type GrokHistoryEntry } from "@/lib/ai/grok";
+import { isNonEmptyMedia } from "@/lib/ai/media";
 import { iceFromPhone } from "@/lib/iceFromPhone";
 import { connectToDatabase } from "@/lib/mongodb";
 import { serializeIncident } from "@/lib/serializeIncident";
@@ -14,24 +16,9 @@ import type {
   SimulateCrisisType,
   TriageRequest,
 } from "@/types/incident";
-import { VICTIM_INSTRUCTIONS } from "@/types/incident";
 
 /** Vercel / Next route segment: allow full Gemini+Grok budget. */
 export const maxDuration = 60;
-
-type GrokTriageResult = {
-  severityScore: number;
-  dispatcherBrief: string;
-};
-
-type ClassifyResult = {
-  crisisType: CrisisType;
-  classificationFailed: boolean;
-  rawModelText?: string;
-};
-
-const GEMINI_TIMEOUT_MS = 20_000;
-const GROK_TIMEOUT_MS = 12_000;
 
 const PERCEPTION_TYPES = [
   "ENVIRONMENTAL_HAZARD",
@@ -39,134 +26,11 @@ const PERCEPTION_TYPES = [
   "ACTIVE_THREAT",
 ] as const;
 
-type PerceptionCrisisType = (typeof PERCEPTION_TYPES)[number];
-
-const GEMINI_SYSTEM_INSTRUCTION = [
-  "You are SilentPulse emergency scene classifier.",
-  "You will receive a camera still (and optionally audio) from a phone SOS.",
-  "You MUST look at the image and listen to the audio before deciding.",
-  "",
-  "Choose exactly ONE label:",
-  "- ENVIRONMENTAL_HAZARD: fire, smoke, flood, gas, chemical spill, structural collapse, severe weather damage, visible environmental danger.",
-  "- MEDICAL_CRISIS: injury, collapse, seizure, chest pain, overdose, unconsciousness, choking, panic attack, heavy breathing, crying, hyperventilating, medical distress with NO clear attacker in frame.",
-  "- ACTIVE_THREAT: weapon, assault, physical attacker, hostage situation, or clear violent threat visible/audible. Do NOT use this for panic breathing alone.",
-  "",
-  "Critical rule: If the audio detects heavy breathing, crying, hyperventilating, or panic, you must classify it as a MEDICAL_CRISIS unless the video frames explicitly show a physical attacker.",
-  "A dark, covered or obstructed frame combined with whispering, shouting, banging, screaming or gunshot-like sounds indicates a person hiding from a threat → ACTIVE_THREAT.",
-  "Do not default to ACTIVE_THREAT. If evidence is ambiguous between medical and threat, prefer MEDICAL_CRISIS (unless the dark/obstructed + threat-sound rule applies).",
-  "If evidence is ambiguous between medical and environmental, prefer the clearer visual cue; if still unclear, prefer MEDICAL_CRISIS.",
-  "",
-  "Final answer format: respond with ONLY one of these exact strings and nothing else:",
-  "ENVIRONMENTAL_HAZARD",
-  "MEDICAL_CRISIS",
-  "ACTIVE_THREAT",
-].join("\n");
-
-const GEMINI_USER_PROMPT =
-  "Analyze the attached camera frame and audio from this SilentPulse SOS. Classify the scenario using the system rules. Reply with exactly one label.";
-
-function isNonEmptyMedia(value?: string): boolean {
-  return typeof value === "string" && value.trim().length > 0;
-}
-
 function isSimulateCrisisType(value: unknown): value is SimulateCrisisType {
   return (
     typeof value === "string" &&
     (PERCEPTION_TYPES as readonly string[]).includes(value)
   );
-}
-
-/** Accepts data URIs with optional charset / extra params before ;base64, */
-function parseDataUri(input: string): { mimeType: string; data: string } {
-  const trimmed = input.trim();
-  const match =
-    /^data:([^;,]+)(?:;charset=[^;,]+)?(?:;[^,]*)?;base64,([\s\S]+)$/i.exec(
-      trimmed,
-    );
-  if (match) {
-    return {
-      mimeType: match[1],
-      data: match[2].replace(/\s/g, ""),
-    };
-  }
-  return {
-    mimeType: "application/octet-stream",
-    data: trimmed.replace(/\s/g, ""),
-  };
-}
-
-/**
- * Preserve real audio/video MIME types from the phone.
- * Never force image/jpeg onto webm/mp4 — Gemini 400s on that mismatch.
- */
-function resolveMediaMime(
-  parsedMime: string,
-  slot: "visual" | "audio",
-): string {
-  const mt = (parsedMime || "").toLowerCase().trim();
-  if (mt.startsWith("audio/")) return mt;
-  if (mt.startsWith("video/")) return mt;
-  if (mt.startsWith("image/") && slot === "visual") return mt;
-
-  if (slot === "audio") {
-    if (mt.includes("webm")) return "audio/webm";
-    if (mt.includes("ogg")) return "audio/ogg";
-    if (mt.includes("mp4") || mt.includes("m4a") || mt.includes("aac")) {
-      return "audio/mp4";
-    }
-    if (mt.includes("mpeg") || mt.includes("mp3")) return "audio/mpeg";
-    if (mt.includes("wav")) return "audio/wav";
-    return "audio/webm";
-  }
-
-  if (mt.includes("webm")) return "video/webm";
-  if (mt.includes("mp4")) return "video/mp4";
-  if (mt.includes("png")) return "image/png";
-  if (mt.includes("webp")) return "image/webp";
-  if (mt.includes("gif")) return "image/gif";
-  return "image/jpeg";
-}
-
-function extractCrisisType(raw: string): PerceptionCrisisType | null {
-  const upper = raw.toUpperCase();
-  const embedded = upper.match(
-    /\b(ENVIRONMENTAL_HAZARD|MEDICAL_CRISIS|ACTIVE_THREAT)\b/,
-  );
-  if (embedded) return embedded[1] as PerceptionCrisisType;
-
-  let normalized = upper.trim().replace(/[^A-Z_]/g, "");
-  if (
-    normalized === "SECURITY_THREAT" ||
-    normalized === "THREAT" ||
-    normalized === "VIOLENT_THREAT" ||
-    normalized === "ASSAULT"
-  ) {
-    normalized = "ACTIVE_THREAT";
-  }
-  if (
-    normalized === "MEDICAL" ||
-    normalized === "PANIC_ATTACK" ||
-    normalized === "HEALTH_EMERGENCY"
-  ) {
-    normalized = "MEDICAL_CRISIS";
-  }
-  if (
-    normalized === "FIRE" ||
-    normalized === "HAZARD" ||
-    normalized === "ENVIRONMENTAL"
-  ) {
-    normalized = "ENVIRONMENTAL_HAZARD";
-  }
-  if ((PERCEPTION_TYPES as readonly string[]).includes(normalized)) {
-    return normalized as PerceptionCrisisType;
-  }
-  return null;
-}
-
-function clampSeverity(score: unknown): number {
-  const n = typeof score === "number" ? score : Number(score);
-  if (!Number.isFinite(n)) return 8;
-  return Math.min(10, Math.max(1, Math.round(n)));
 }
 
 function parseOptionalGps(
@@ -181,27 +45,6 @@ function parseOptionalGps(
     return { lat: gps.lat, lng: gps.lng };
   }
   return undefined;
-}
-
-async function withTimeout<T>(
-  promise: Promise<T>,
-  ms: number,
-  label: string,
-): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(
-          () => reject(new Error(`${label} timed out after ${ms}ms`)),
-          ms,
-        );
-      }),
-    ]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
 }
 
 function summarizeIce(profile: IceProfileShape | null): string {
@@ -278,6 +121,10 @@ function triageJsonResponse(serialized: ReturnType<typeof serializeIncident>) {
       crisisType: serialized.crisisType,
       severityScore: serialized.severityScore,
       dispatcherBrief: serialized.dispatcherBrief,
+      sceneSummary: serialized.sceneSummary,
+      cues: serialized.cues ?? [],
+      reasons: serialized.reasons ?? [],
+      trend: serialized.trend ?? "new",
       lowBandwidth: serialized.lowBandwidth,
       classificationFailed: serialized.classificationFailed,
       simulated: serialized.simulated,
@@ -290,233 +137,6 @@ function triageJsonResponse(serialized: ReturnType<typeof serializeIncident>) {
     },
     { status: 200 },
   );
-}
-
-async function classifyWithGemini(
-  imageBase64: string | undefined,
-  audioBase64: string | undefined,
-): Promise<ClassifyResult> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    console.warn("[triage] GEMINI_API_KEY missing; classificationFailed");
-    return { crisisType: "UNKNOWN", classificationFailed: true };
-  }
-
-  try {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({
-      model: "gemini-2.5-flash",
-      systemInstruction: GEMINI_SYSTEM_INSTRUCTION,
-      generationConfig: {
-        temperature: 0.2,
-        maxOutputTokens: 2048,
-      },
-    });
-
-    const parts: Array<
-      | { text: string }
-      | { inlineData: { data: string; mimeType: string } }
-    > = [{ text: GEMINI_USER_PROMPT }];
-
-    if (isNonEmptyMedia(imageBase64)) {
-      const parsed = parseDataUri(imageBase64!);
-      if (parsed.data.length > 0) {
-        parts.push({
-          inlineData: {
-            data: parsed.data,
-            mimeType: resolveMediaMime(parsed.mimeType, "visual"),
-          },
-        });
-      } else {
-        console.warn("[triage] visual media present but base64 data is empty");
-      }
-    }
-
-    if (isNonEmptyMedia(audioBase64)) {
-      const parsed = parseDataUri(audioBase64!);
-      if (parsed.data.length > 0) {
-        const mime = resolveMediaMime(
-          parsed.mimeType.split(";")[0] || parsed.mimeType,
-          "audio",
-        );
-        parts.push({
-          inlineData: {
-            data: parsed.data,
-            mimeType: mime,
-          },
-        });
-      } else {
-        console.warn("[triage] audio media present but base64 data is empty");
-      }
-    }
-
-    console.log(
-      "[triage] Gemini part summary:",
-      parts.map((p) =>
-        "text" in p
-          ? { kind: "text", chars: p.text.length }
-          : {
-              kind: "inlineData",
-              mimeType: p.inlineData.mimeType,
-              dataChars: p.inlineData.data.length,
-            },
-      ),
-    );
-
-    const mediaPartCount = parts.filter((p) => "inlineData" in p).length;
-    if (mediaPartCount === 0) {
-      console.warn("[triage] no usable media parts after parse; skipping Gemini");
-      return { crisisType: "UNKNOWN", classificationFailed: true };
-    }
-
-    const result = await withTimeout(
-      model.generateContent({ contents: [{ role: "user", parts }] }),
-      GEMINI_TIMEOUT_MS,
-      "Gemini",
-    );
-
-    const candidate = result.response.candidates?.[0];
-    console.log("[triage] Gemini finishReason:", candidate?.finishReason);
-    console.log(
-      "[triage] Gemini promptFeedback:",
-      JSON.stringify(result.response.promptFeedback ?? null),
-    );
-
-    let text = "";
-    try {
-      text = result.response.text() ?? "";
-    } catch (textErr) {
-      console.warn("[triage] response.text() threw:", textErr);
-    }
-    if (!text.trim() && candidate?.content?.parts) {
-      text = candidate.content.parts
-        .map((p) => ("text" in p && typeof p.text === "string" ? p.text : ""))
-        .join("")
-        .trim();
-    }
-
-    console.log("[triage] Gemini raw classification:", JSON.stringify(text));
-    const extracted = extractCrisisType(text);
-    if (!extracted) {
-      console.warn(
-        "[triage] could not parse Gemini label from:",
-        text.slice(0, 200),
-      );
-      return {
-        crisisType: "UNKNOWN",
-        classificationFailed: true,
-        rawModelText: text,
-      };
-    }
-    return {
-      crisisType: extracted,
-      classificationFailed: false,
-      rawModelText: text,
-    };
-  } catch (error) {
-    console.error("[triage] Gemini classification failed:", error);
-    return { crisisType: "UNKNOWN", classificationFailed: true };
-  }
-}
-
-async function gradeWithGrok(input: {
-  crisisType: CrisisType;
-  lowBandwidth: boolean;
-  gps?: { lat: number; lng: number };
-  iceSummary: string;
-  iceProfile: IceProfileShape | null;
-}): Promise<GrokTriageResult> {
-  const gpsLabel = input.gps
-    ? `${input.gps.lat}, ${input.gps.lng}`
-    : "GPS unavailable";
-  const fallback: GrokTriageResult = {
-    severityScore: 8,
-    dispatcherBrief: `SOS at ${gpsLabel} classified as ${input.crisisType}. Units should respond immediately; full AI triage unavailable.`,
-  };
-
-  const apiKey = process.env.GROK_API_KEY;
-  if (!apiKey) {
-    console.warn("[triage] GROK_API_KEY missing; using severity fallback");
-    return fallback;
-  }
-
-  try {
-    const systemPrompt = [
-      "You are SilentPulse emergency triage. Respond with ONLY valid JSON.",
-      'Schema: { "severityScore": integer 1-10, "dispatcherBrief": string }',
-      "dispatcherBrief must be exactly 2 concise, high-signal sentences for an emergency dispatcher.",
-      "Elevate severityScore when medical conditions/allergies conflict with the crisis,",
-      "or when crisisType is UNKNOWN / lowBandwidth is true for a high-risk patient.",
-      "Mention relevant ICE conditions (e.g. asthma, diabetes) when present.",
-      "Factor mobilityNotes and sensoryNotes into the brief and severity:",
-      "e.g. a deaf user cannot hear responders calling out; a wheelchair user cannot use stairs.",
-      "If sensoryNotes or mobilityNotes are present, at least one sentence must call out that operational constraint.",
-    ].join(" ");
-
-    const userPayload = {
-      crisisType: input.crisisType,
-      lowBandwidth: input.lowBandwidth,
-      gps: input.gps ?? null,
-      iceSummary: input.iceSummary,
-      iceProfile: input.iceProfile,
-    };
-
-    const response = await withTimeout(
-      fetch("https://api.x.ai/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model: "grok-3-mini",
-          response_format: { type: "json_object" },
-          messages: [
-            { role: "system", content: systemPrompt },
-            {
-              role: "user",
-              content: `Triage this SilentPulse SOS and return JSON only:\n${JSON.stringify(userPayload)}`,
-            },
-          ],
-        }),
-      }),
-      GROK_TIMEOUT_MS,
-      "Grok",
-    );
-
-    if (!response.ok) {
-      const errText = await response.text();
-      console.error("[triage] Grok HTTP error:", response.status, errText);
-      return fallback;
-    }
-
-    const data = (await response.json()) as {
-      choices?: Array<{ message?: { content?: string } }>;
-    };
-    const content = data.choices?.[0]?.message?.content;
-    if (!content) {
-      return fallback;
-    }
-
-    const parsed = JSON.parse(content) as {
-      severityScore?: unknown;
-      dispatcherBrief?: unknown;
-    };
-
-    const dispatcherBrief =
-      typeof parsed.dispatcherBrief === "string" &&
-      parsed.dispatcherBrief.trim().length > 0
-        ? parsed.dispatcherBrief.trim()
-        : fallback.dispatcherBrief;
-
-    return {
-      severityScore: clampSeverity(parsed.severityScore),
-      dispatcherBrief,
-    };
-  } catch (error) {
-    console.error("[triage] Grok triage failed:", error);
-    return fallback;
-  }
 }
 
 async function resolveIceProfile(
@@ -584,6 +204,7 @@ function buildTimelineEntry(input: {
   gps?: { lat: number; lng: number };
   lowBandwidth: boolean;
   classificationFailed: boolean;
+  sceneSummary?: string;
   now: Date;
 }) {
   return {
@@ -593,10 +214,46 @@ function buildTimelineEntry(input: {
     gps: input.gps ?? null,
     lowBandwidth: input.lowBandwidth,
     classificationFailed: input.classificationFailed,
+    ...(input.sceneSummary ? { sceneSummary: input.sceneSummary } : {}),
+  };
+}
+
+function historyFromSession(
+  existing: {
+    severityScore?: number;
+    timeline?: Array<{
+      ts?: Date | string;
+      crisisType?: string;
+      severityScore?: number;
+      sceneSummary?: string | null;
+    }> | null;
+  } | null,
+): { history: GrokHistoryEntry[]; previousSeverityScore?: number } {
+  if (!existing) return { history: [] };
+  const entries = Array.isArray(existing.timeline) ? existing.timeline : [];
+  const last3 = entries.slice(-3).map((e) => ({
+    ts:
+      e.ts instanceof Date
+        ? e.ts.toISOString()
+        : typeof e.ts === "string"
+          ? e.ts
+          : new Date().toISOString(),
+    crisisType: String(e.crisisType ?? "UNKNOWN"),
+    severityScore:
+      typeof e.severityScore === "number" ? e.severityScore : 8,
+    ...(e.sceneSummary ? { sceneSummary: e.sceneSummary } : {}),
+  }));
+  return {
+    history: last3,
+    previousSeverityScore:
+      typeof existing.severityScore === "number"
+        ? existing.severityScore
+        : undefined,
   };
 }
 
 export async function POST(request: Request) {
+  const triageStarted = Date.now();
   try {
     const body = (await request.json()) as TriageRequest & {
       image?: string;
@@ -681,6 +338,8 @@ export async function POST(request: Request) {
     let classificationFailed = false;
     let lowBandwidth = false;
     let simulated = false;
+    let sceneSummary: string | undefined;
+    let cues: string[] = [];
 
     if (isSimulateCrisisType(simulate)) {
       // Skip Gemini; force crisis type; Grok still runs with ICE (no canned brief).
@@ -698,6 +357,8 @@ export async function POST(request: Request) {
       const classified = await classifyWithGemini(imageBase64, audioBase64);
       crisisType = classified.crisisType;
       classificationFailed = classified.classificationFailed;
+      sceneSummary = classified.sceneSummary;
+      cues = classified.cues ?? [];
 
       if (!(CRISIS_TYPES as readonly string[]).includes(crisisType)) {
         crisisType = "UNKNOWN";
@@ -707,6 +368,8 @@ export async function POST(request: Request) {
       console.log("[triage] Gemini classification", {
         crisisType,
         classificationFailed,
+        sceneSummary,
+        cues,
         rawModelText: classified.rawModelText?.slice(0, 120),
         hasImage: isNonEmptyMedia(imageBase64),
         hasAudio: isNonEmptyMedia(audioBase64),
@@ -727,23 +390,44 @@ export async function POST(request: Request) {
       });
       crisisType = existingSession.crisisType as CrisisType;
       classificationFailed = false;
+      if (!sceneSummary && existingSession.sceneSummary) {
+        sceneSummary = existingSession.sceneSummary;
+      }
+      if (cues.length === 0 && Array.isArray(existingSession.cues)) {
+        cues = existingSession.cues as string[];
+      }
     }
 
-    const { severityScore, dispatcherBrief } = await gradeWithGrok({
+    const { history, previousSeverityScore } =
+      historyFromSession(existingSession);
+
+    const {
+      severityScore,
+      dispatcherBrief,
+      trend,
+      reasons,
+      victimInstructions,
+    } = await gradeWithGrok({
       crisisType,
       lowBandwidth,
       gps,
       iceSummary,
       iceProfile: profileForTriage,
+      sceneSummary,
+      cues,
+      simulated,
+      building: null,
+      history,
+      previousSeverityScore,
     });
 
-    const victimInstructions = VICTIM_INSTRUCTIONS[crisisType];
     const timelineEntry = buildTimelineEntry({
       crisisType,
       severityScore,
       gps,
       lowBandwidth,
       classificationFailed,
+      sceneSummary,
       now,
     });
 
@@ -752,6 +436,10 @@ export async function POST(request: Request) {
       crisisType,
       severityScore,
       dispatcherBrief,
+      ...(sceneSummary ? { sceneSummary } : {}),
+      cues,
+      reasons,
+      trend,
       ...(gps ? { gps } : {}),
       lowBandwidth,
       classificationFailed,
@@ -791,11 +479,19 @@ export async function POST(request: Request) {
       );
     }
 
+    console.log(
+      `[triage] total latency ${Date.now() - triageStarted}ms`,
+      { crisisType, trend, cues: cues.length, reasons: reasons.length },
+    );
+
     const lean =
       typeof incident.toObject === "function" ? incident.toObject() : incident;
     return triageJsonResponse(serializeIncident(lean));
   } catch (error) {
     console.error("[triage] unexpected error:", error);
+    console.log(
+      `[triage] total latency ${Date.now() - triageStarted}ms (error)`,
+    );
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 },
