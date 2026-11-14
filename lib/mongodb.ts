@@ -6,7 +6,6 @@ interface MongooseCache {
 }
 
 declare global {
-  // eslint-disable-next-line no-var -- required for Next.js global cache pattern
   var mongooseCache: MongooseCache | undefined;
 }
 
