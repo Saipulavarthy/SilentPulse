@@ -1,0 +1,3 @@
+{
+  "_readme": "Keyed by exact building name from umassBuildings.json (after overrides). Each value: { \"type\"?: string, \"notes\"?: string }. type overrides the default \"Building\"; notes is free-text responder context merged into Building.notes. Do not invent campus facts — only add verified operational notes."
+}

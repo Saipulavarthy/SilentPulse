@@ -40,6 +40,27 @@ export interface Building {
   notes?: string;
 }
 
+/** Crisis types that can be forced via TriageRequest.simulate (not UNKNOWN). */
+export type SimulateCrisisType =
+  | "ENVIRONMENTAL_HAZARD"
+  | "MEDICAL_CRISIS"
+  | "ACTIVE_THREAT";
+
+/** Session trend from Grok when comparing against prior ticks. */
+export type Trend = "new" | "worsening" | "stable" | "improving";
+
+export interface TimelineEntry {
+  /** ISO 8601 string. */
+  ts: string;
+  crisisType: CrisisType;
+  severityScore: number;
+  gps: { lat: number; lng: number } | null;
+  lowBandwidth: boolean;
+  classificationFailed: boolean;
+  /** Gemini one-sentence scene description for this tick. */
+  sceneSummary?: string;
+}
+
 export interface Incident {
   _id: string;
   userId: string;
@@ -50,6 +71,12 @@ export interface Incident {
   dispatcherBrief: string;
   /** One line on what Gemini saw/heard. Absent for low-bandwidth SOS. */
   sceneSummary?: string;
+  /** Short concrete observations from Gemini (smoke haze, alarm tone, …). */
+  cues?: string[];
+  /** Grok evidence→risk strings explaining the severity. */
+  reasons?: string[];
+  /** Session trend vs prior ticks. */
+  trend?: Trend;
   /** Optional — phone may omit GPS. */
   gps?: {
     lat: number;
@@ -61,11 +88,25 @@ export interface Incident {
   lowBandwidth: boolean;
   /** True when Gemini timed out / failed while media was present. */
   classificationFailed?: boolean;
-  /** Static instructions shown to the victim on-device. */
-  victimInstructions: string;
+  /** True when this incident was created/updated via simulate=<crisisType>. */
+  simulated?: boolean;
+  /**
+   * Victim-facing steps (AI-generated when Grok succeeds).
+   * Falls back to VICTIM_INSTRUCTIONS[crisisType] as a single joined string
+   * or a string[] of short imperatives.
+   */
+  victimInstructions: string | string[];
   status: IncidentStatus;
   /** Derived for the phone UI (ACTIVE→reviewing, ACKNOWLEDGED→dispatched). */
   dispatcherStatus: DispatcherStatus;
+  /** ISO 8601 — last telemetry tick. */
+  lastSeenAt?: string;
+  /** True when a live session stopped sending updates (signal loss). */
+  escalated?: boolean;
+  /** Human-readable reason set when escalated (e.g. signal lost). */
+  escalationReason?: string;
+  updateCount?: number;
+  timeline?: TimelineEntry[];
   /** ISO 8601 string. */
   createdAt: string;
   /** ISO 8601 string. */
@@ -112,11 +153,14 @@ export type TriageRequest = {
   /** Phone may also send duplicate `image` / `audio` — backend ignores those. */
   iceProfile?: PhoneIceProfilePayload;
   sessionId?: string;
-  /** When true, skip live Gemini/Grok and persist a deterministic demo incident. */
-  simulate?: boolean;
+  /**
+   * Force a perception crisis type (skips Gemini, still runs Grok with ICE).
+   * Must be ENVIRONMENTAL_HAZARD | MEDICAL_CRISIS | ACTIVE_THREAT — anything else → 400.
+   */
+  simulate?: SimulateCrisisType | string | boolean;
 };
 
-/** Static victim-facing copy keyed by crisis type (not AI-generated). */
+/** Fallback victim-facing copy keyed by crisis type when Grok omits instructions. */
 export const VICTIM_INSTRUCTIONS: Record<CrisisType, string> = {
   ENVIRONMENTAL_HAZARD:
     "Move away from smoke or hazard if you can do so safely. Stay low. Keep your phone on so responders can find you.",

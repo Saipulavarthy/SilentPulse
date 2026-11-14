@@ -21,6 +21,8 @@ export async function POST(request: Request) {
       {
         $set: {
           userId: "user_demo_01",
+          name: "Jordan Rivera",
+          age: 20,
           bloodType: "O-",
           allergies: ["Penicillin", "Severe Peanut Allergy"],
           conditions: ["Asthma", "Type 1 Diabetes"],

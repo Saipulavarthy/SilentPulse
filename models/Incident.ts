@@ -17,10 +17,24 @@ export const INCIDENT_STATUSES = [
 
 export type IncidentStatus = (typeof INCIDENT_STATUSES)[number];
 
+export const TRENDS = ["new", "worsening", "stable", "improving"] as const;
+
+export type Trend = (typeof TRENDS)[number];
+
 const GpsSchema = new Schema(
   {
     lat: { type: Number, required: true },
     lng: { type: Number, required: true },
+  },
+  { _id: false },
+);
+
+const BuildingSchema = new Schema(
+  {
+    name: { type: String, required: true },
+    type: { type: String, required: true },
+    floors: { type: Number, required: true },
+    notes: { type: String },
   },
   { _id: false },
 );
@@ -44,6 +58,28 @@ const IncidentIceSnapshotSchema = new Schema(
   { _id: false },
 );
 
+const TimelineEntrySchema = new Schema(
+  {
+    ts: { type: Date, required: true },
+    crisisType: { type: String, enum: CRISIS_TYPES, required: true },
+    severityScore: { type: Number, min: 1, max: 10, required: true },
+    gps: {
+      type: new Schema(
+        {
+          lat: { type: Number, required: true },
+          lng: { type: Number, required: true },
+        },
+        { _id: false },
+      ),
+      default: null,
+    },
+    lowBandwidth: { type: Boolean, default: false },
+    classificationFailed: { type: Boolean, default: false },
+    sceneSummary: { type: String },
+  },
+  { _id: false },
+);
+
 const ActiveIncidentSchema = new Schema(
   {
     userId: { type: String, required: true, index: true },
@@ -62,13 +98,30 @@ const ActiveIncidentSchema = new Schema(
     },
     dispatcherBrief: { type: String, required: true },
     sceneSummary: { type: String },
+    cues: { type: [String], default: [] },
+    reasons: { type: [String], default: [] },
+    trend: {
+      type: String,
+      enum: TRENDS,
+      default: "new",
+    },
     /** Optional — phone may omit GPS. */
     gps: { type: GpsSchema, required: false },
+    /** Resolved UMass building from GPS (null when outside campus footprints). */
+    building: { type: BuildingSchema, default: null },
     lowBandwidth: { type: Boolean, default: false },
     classificationFailed: { type: Boolean, default: false },
-    victimInstructions: { type: String, required: true },
+    simulated: { type: Boolean, default: false },
+    /** AI-generated steps (string[]) or legacy static string. */
+    victimInstructions: { type: Schema.Types.Mixed, required: true },
     /** ICE snapshot used for this SOS (phone and/or Mongo merge). */
     iceProfile: { type: IncidentIceSnapshotSchema, default: null },
+    lastSeenAt: { type: Date },
+    /** True when a live session stopped updating past SIGNAL_LOSS_MS. */
+    escalated: { type: Boolean, default: false },
+    escalationReason: { type: String },
+    updateCount: { type: Number, default: 1 },
+    timeline: { type: [TimelineEntrySchema], default: [] },
     /** Victim quick-action selection from the phone crisis UI. */
     userProvidedContext: { type: String, default: null },
     status: {
@@ -86,6 +139,10 @@ export type IActiveIncident = InferSchemaType<typeof ActiveIncidentSchema> & {
 
 export type ActiveIncidentDocument = mongoose.HydratedDocument<IActiveIncident>;
 
+// Drop stale compiled model so new fields (timeline, simulated, …) register in dev.
+if (mongoose.models.ActiveIncident) {
+  delete mongoose.models.ActiveIncident;
+}
+
 export const ActiveIncident: Model<IActiveIncident> =
-  mongoose.models.ActiveIncident ||
   mongoose.model<IActiveIncident>("ActiveIncident", ActiveIncidentSchema);

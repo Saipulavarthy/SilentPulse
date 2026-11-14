@@ -1,4 +1,10 @@
-import type { CrisisType, Incident, IceProfile } from "@/types/incident";
+import type {
+  CrisisType,
+  Incident,
+  IceProfile,
+  TimelineEntry,
+  Trend,
+} from "@/types/incident";
 import {
   statusToDispatcherStatus,
   VICTIM_INSTRUCTIONS,
@@ -20,6 +26,16 @@ type LeanIce = {
   sensoryNotes?: string | null;
 } | null;
 
+type LeanTimelineEntry = {
+  ts?: Date | string;
+  crisisType: CrisisType | string;
+  severityScore: number;
+  gps?: { lat: number; lng: number } | null;
+  lowBandwidth?: boolean | null;
+  classificationFailed?: boolean | null;
+  sceneSummary?: string | null;
+};
+
 type LeanIncident = {
   _id: { toString(): string } | string;
   userId: string;
@@ -28,13 +44,27 @@ type LeanIncident = {
   severityScore: number;
   dispatcherBrief: string;
   sceneSummary?: string | null;
+  cues?: string[] | null;
+  reasons?: string[] | null;
+  trend?: Trend | string | null;
   gps?: { lat: number; lng: number } | null;
-  building?: Incident["building"];
+  building?: {
+    name: string;
+    type: string;
+    floors: number;
+    notes?: string | null;
+  } | null;
   iceProfile?: LeanIce;
   lowBandwidth?: boolean | null;
   classificationFailed?: boolean | null;
-  victimInstructions?: string | null;
+  simulated?: boolean | null;
+  victimInstructions?: string | string[] | null;
   status: Incident["status"] | string;
+  lastSeenAt?: Date | string | null;
+  escalated?: boolean | null;
+  escalationReason?: string | null;
+  updateCount?: number | null;
+  timeline?: LeanTimelineEntry[] | null;
   createdAt?: Date | string;
   updatedAt?: Date | string;
 };
@@ -68,10 +98,43 @@ function serializeIce(ice: LeanIce): IceProfile | null {
   };
 }
 
-function toIso(value: Date | string | undefined): string {
+function toIso(value: Date | string | undefined | null): string {
   if (!value) return new Date().toISOString();
   if (value instanceof Date) return value.toISOString();
   return new Date(value).toISOString();
+}
+
+function serializeTimeline(
+  entries: LeanTimelineEntry[] | null | undefined,
+): TimelineEntry[] | undefined {
+  if (!entries || entries.length === 0) return undefined;
+  return entries.map((e) => ({
+    ts: toIso(e.ts),
+    crisisType: e.crisisType as CrisisType,
+    severityScore: e.severityScore,
+    gps: e.gps ? { lat: e.gps.lat, lng: e.gps.lng } : null,
+    lowBandwidth: Boolean(e.lowBandwidth),
+    classificationFailed: Boolean(e.classificationFailed),
+    ...(e.sceneSummary ? { sceneSummary: e.sceneSummary } : {}),
+  }));
+}
+
+function serializeVictimInstructions(
+  value: string | string[] | null | undefined,
+  crisisType: CrisisType,
+): string | string[] {
+  if (Array.isArray(value)) {
+    const cleaned = value
+      .filter((s): s is string => typeof s === "string")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (cleaned.length > 0) return cleaned;
+  } else if (typeof value === "string" && value.trim().length > 0) {
+    return value;
+  }
+  return (
+    VICTIM_INSTRUCTIONS[crisisType] || VICTIM_INSTRUCTIONS.UNKNOWN
+  );
 }
 
 /** Map a Mongo lean/hydrated ActiveIncident into the shared API Incident contract. */
@@ -86,17 +149,43 @@ export function serializeIncident(doc: LeanIncident): Incident {
     severityScore: doc.severityScore,
     dispatcherBrief: doc.dispatcherBrief,
     ...(doc.sceneSummary ? { sceneSummary: doc.sceneSummary } : {}),
+    cues: Array.isArray(doc.cues) ? doc.cues : [],
+    reasons: Array.isArray(doc.reasons) ? doc.reasons : [],
+    trend: (doc.trend as Trend) || "new",
     ...(doc.gps ? { gps: { lat: doc.gps.lat, lng: doc.gps.lng } } : {}),
-    ...(doc.building ? { building: doc.building } : {}),
+    ...(doc.building
+      ? {
+          building: {
+            name: doc.building.name,
+            type: doc.building.type,
+            floors: doc.building.floors,
+            ...(doc.building.notes
+              ? { notes: doc.building.notes }
+              : {}),
+          },
+        }
+      : {}),
     iceProfile: serializeIce(doc.iceProfile ?? null),
     lowBandwidth: Boolean(doc.lowBandwidth),
     classificationFailed: Boolean(doc.classificationFailed),
-    victimInstructions:
-      doc.victimInstructions ||
-      VICTIM_INSTRUCTIONS[crisisType] ||
-      VICTIM_INSTRUCTIONS.UNKNOWN,
+    simulated: Boolean(doc.simulated),
+    victimInstructions: serializeVictimInstructions(
+      doc.victimInstructions,
+      crisisType,
+    ),
     status,
     dispatcherStatus: statusToDispatcherStatus(status),
+    ...(doc.lastSeenAt ? { lastSeenAt: toIso(doc.lastSeenAt) } : {}),
+    escalated: Boolean(doc.escalated),
+    ...(doc.escalationReason
+      ? { escalationReason: doc.escalationReason }
+      : {}),
+    ...(typeof doc.updateCount === "number"
+      ? { updateCount: doc.updateCount }
+      : {}),
+    ...(serializeTimeline(doc.timeline)
+      ? { timeline: serializeTimeline(doc.timeline) }
+      : {}),
     createdAt: toIso(doc.createdAt),
     updatedAt: toIso(doc.updatedAt),
   };
