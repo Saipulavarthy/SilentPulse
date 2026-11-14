@@ -2,9 +2,9 @@ import mongoose, { Schema, type InferSchemaType, type Model } from "mongoose";
 
 const EmergencyContactSchema = new Schema(
   {
-    name: { type: String, required: true },
-    phone: { type: String, required: true },
-    relation: { type: String, required: true },
+    name: { type: String },
+    phone: { type: String },
+    relation: { type: String },
   },
   { _id: false },
 );
@@ -12,11 +12,16 @@ const EmergencyContactSchema = new Schema(
 const IceProfileSchema = new Schema(
   {
     userId: { type: String, required: true, unique: true, index: true },
+    // Phone may send a partial profile — name is optional.
+    name: { type: String },
+    age: { type: Number },
     bloodType: { type: String },
     allergies: { type: [String], default: [] },
     conditions: { type: [String], default: [] },
     medications: { type: [String], default: [] },
     emergencyContact: { type: EmergencyContactSchema },
+    mobilityNotes: { type: String },
+    sensoryNotes: { type: String },
   },
   { timestamps: true },
 );

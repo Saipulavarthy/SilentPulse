@@ -1,5 +1,7 @@
+import mongoose from "mongoose";
 import { NextResponse } from "next/server";
 import { connectToDatabase } from "@/lib/mongodb";
+import { serializeIncident } from "@/lib/serializeIncident";
 import {
   ActiveIncident,
   INCIDENT_STATUSES,
@@ -16,6 +18,14 @@ export async function PATCH(
 ) {
   try {
     const { id } = await params;
+
+    if (!mongoose.isValidObjectId(id)) {
+      return NextResponse.json(
+        { error: "Invalid incident id" },
+        { status: 400 },
+      );
+    }
+
     const body = (await request.json()) as PatchBody;
     const { status } = body;
 
@@ -46,7 +56,7 @@ export async function PATCH(
       );
     }
 
-    return NextResponse.json(updated, { status: 200 });
+    return NextResponse.json(serializeIncident(updated), { status: 200 });
   } catch (error) {
     console.error("[incidents] PATCH unexpected error:", error);
     return NextResponse.json(

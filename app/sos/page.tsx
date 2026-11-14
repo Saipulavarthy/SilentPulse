@@ -66,7 +66,7 @@ function crisisTypeToUiState(crisisType: string): UiState {
       return "medical";
     case "ACTIVE_THREAT":
       return "threat";
-    case "LOW_BANDWIDTH_SOS":
+    case "UNKNOWN":
       return "low-bandwidth";
     default:
       return "low-bandwidth";
@@ -555,7 +555,7 @@ function SosPageContent() {
             {uiState === "low-bandwidth" && (
               <div className="flex h-full w-full items-center justify-center bg-zinc-700 px-8 text-center">
                 <p className="text-lg font-semibold tracking-wide text-zinc-200 sm:text-2xl">
-                  POOR CONNECTION. TEXT AND GPS DISPATCHED.
+                  POOR CONNECTION. TEXT AND GPS SENT TO DISPATCH.
                 </p>
               </div>
             )}
