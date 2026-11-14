@@ -1,7 +1,7 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { FormEvent, Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 const ICE_STORAGE_KEY = "silentpulse_ice_profile";
 
@@ -34,8 +34,14 @@ type IceProfile = {
 const inputClassName =
   "rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-base text-white outline-none placeholder:text-zinc-600 focus:border-red-500";
 
-export default function OnboardingPage() {
+function isBloodType(value: string): value is BloodType {
+  return (BLOOD_TYPES as readonly string[]).includes(value);
+}
+
+function OnboardingForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const isEditing = searchParams.get("edit") === "true";
   const [checkingProfile, setCheckingProfile] = useState(true);
   const [fullName, setFullName] = useState("");
   const [age, setAge] = useState("");
@@ -50,15 +56,32 @@ export default function OnboardingPage() {
   useEffect(() => {
     try {
       const existing = localStorage.getItem(ICE_STORAGE_KEY);
-      if (existing) {
+      if (existing && !isEditing) {
         router.replace("/sos");
         return;
+      }
+
+      if (existing && isEditing) {
+        const profile = JSON.parse(existing) as Partial<IceProfile>;
+        setFullName(profile.fullName ?? "");
+        setAge(profile.age ?? "");
+        setEmergencyContactName(profile.emergencyContactName ?? "");
+        setEmergencyContactPhone(profile.emergencyContactPhone ?? "");
+        setBloodType(
+          profile.bloodType && isBloodType(profile.bloodType)
+            ? profile.bloodType
+            : "Unknown",
+        );
+        setMedicalConditions(profile.medicalConditions ?? "");
+        setAllergies(profile.allergies ?? "");
+        setMobilityNotes(profile.mobilityNotes ?? "");
+        setSensoryNotes(profile.sensoryNotes ?? "");
       }
     } catch (error) {
       console.error("Failed to read ICE profile:", error);
     }
     setCheckingProfile(false);
-  }, [router]);
+  }, [router, isEditing]);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -95,7 +118,7 @@ export default function OnboardingPage() {
             SilentPulse
           </p>
           <h1 className="text-3xl font-bold tracking-tight text-white">
-            SilentPulse Setup
+            {isEditing ? "Edit ICE Profile" : "SilentPulse Setup"}
           </h1>
           <p className="text-sm leading-relaxed text-zinc-400">
             Enter your emergency medical details. This is stored securely on your
@@ -232,10 +255,24 @@ export default function OnboardingPage() {
             type="submit"
             className="mt-2 w-full rounded-2xl bg-red-600 px-4 py-4 text-lg font-bold tracking-wide text-white transition hover:bg-red-500 active:scale-[0.98]"
           >
-            Save & Arm SilentPulse
+            {isEditing ? "Save Changes" : "Save & Arm SilentPulse"}
           </button>
         </form>
       </div>
     </main>
+  );
+}
+
+export default function OnboardingPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="flex min-h-screen w-screen items-center justify-center bg-zinc-950 text-zinc-400">
+          <p className="text-sm tracking-wide">Loading SilentPulse...</p>
+        </main>
+      }
+    >
+      <OnboardingForm />
+    </Suspense>
   );
 }
