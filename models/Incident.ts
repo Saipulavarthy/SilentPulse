@@ -17,6 +17,10 @@ export const INCIDENT_STATUSES = [
 
 export type IncidentStatus = (typeof INCIDENT_STATUSES)[number];
 
+export const TRENDS = ["new", "worsening", "stable", "improving"] as const;
+
+export type Trend = (typeof TRENDS)[number];
+
 const GpsSchema = new Schema(
   {
     lat: { type: Number, required: true },
@@ -61,6 +65,7 @@ const TimelineEntrySchema = new Schema(
     },
     lowBandwidth: { type: Boolean, default: false },
     classificationFailed: { type: Boolean, default: false },
+    sceneSummary: { type: String },
   },
   { _id: false },
 );
@@ -83,12 +88,20 @@ const ActiveIncidentSchema = new Schema(
     },
     dispatcherBrief: { type: String, required: true },
     sceneSummary: { type: String },
+    cues: { type: [String], default: [] },
+    reasons: { type: [String], default: [] },
+    trend: {
+      type: String,
+      enum: TRENDS,
+      default: "new",
+    },
     /** Optional — phone may omit GPS. */
     gps: { type: GpsSchema, required: false },
     lowBandwidth: { type: Boolean, default: false },
     classificationFailed: { type: Boolean, default: false },
     simulated: { type: Boolean, default: false },
-    victimInstructions: { type: String, required: true },
+    /** AI-generated steps (string[]) or legacy static string. */
+    victimInstructions: { type: Schema.Types.Mixed, required: true },
     /** ICE snapshot used for this SOS (phone and/or Mongo merge). */
     iceProfile: { type: IncidentIceSnapshotSchema, default: null },
     lastSeenAt: { type: Date },
