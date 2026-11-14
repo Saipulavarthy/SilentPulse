@@ -29,6 +29,16 @@ const GpsSchema = new Schema(
   { _id: false },
 );
 
+const BuildingSchema = new Schema(
+  {
+    name: { type: String, required: true },
+    type: { type: String, required: true },
+    floors: { type: Number, required: true },
+    notes: { type: String },
+  },
+  { _id: false },
+);
+
 const IncidentIceSnapshotSchema = new Schema(
   {
     name: { type: String },
@@ -97,6 +107,8 @@ const ActiveIncidentSchema = new Schema(
     },
     /** Optional — phone may omit GPS. */
     gps: { type: GpsSchema, required: false },
+    /** Resolved UMass building from GPS (null when outside campus footprints). */
+    building: { type: BuildingSchema, default: null },
     lowBandwidth: { type: Boolean, default: false },
     classificationFailed: { type: Boolean, default: false },
     simulated: { type: Boolean, default: false },
@@ -105,6 +117,9 @@ const ActiveIncidentSchema = new Schema(
     /** ICE snapshot used for this SOS (phone and/or Mongo merge). */
     iceProfile: { type: IncidentIceSnapshotSchema, default: null },
     lastSeenAt: { type: Date },
+    /** True when a live session stopped updating past SIGNAL_LOSS_MS. */
+    escalated: { type: Boolean, default: false },
+    escalationReason: { type: String },
     updateCount: { type: Number, default: 1 },
     timeline: { type: [TimelineEntrySchema], default: [] },
     status: {

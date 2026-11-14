@@ -101,6 +101,10 @@ export interface Incident {
   dispatcherStatus: DispatcherStatus;
   /** ISO 8601 — last telemetry tick. */
   lastSeenAt?: string;
+  /** True when a live session stopped sending updates (signal loss). */
+  escalated?: boolean;
+  /** Human-readable reason set when escalated (e.g. signal lost). */
+  escalationReason?: string;
   updateCount?: number;
   timeline?: TimelineEntry[];
   /** ISO 8601 string. */

@@ -7,6 +7,9 @@ import {
   type IncidentStatus,
 } from "@/models/Incident";
 
+/** Phone ticks ~30s; triage can take ~30s — default 75s avoids false alarms. */
+const SIGNAL_LOSS_MS = Number(process.env.SIGNAL_LOSS_MS ?? 75_000);
+
 export async function GET(request: Request) {
   // Must stay outside try/catch so Cache Components prerender can bail cleanly.
   await connection();
@@ -30,9 +33,36 @@ export async function GET(request: Request) {
       filter.status = statusParam as IncidentStatus;
     }
 
-    // Use the ICE snapshot stored on each incident — no live IceProfile join.
+    // Escalate live sessions that went silent before returning the list.
+    const cutoff = new Date(Date.now() - SIGNAL_LOSS_MS);
+    const escalated = await ActiveIncident.updateMany(
+      {
+        status: "ACTIVE",
+        sessionId: { $exists: true, $nin: [null, ""] },
+        lastSeenAt: { $exists: true, $lt: cutoff },
+        escalated: { $ne: true },
+      },
+      {
+        $set: {
+          escalated: true,
+          severityScore: 10,
+          escalationReason: "Signal lost: no update for 75s",
+        },
+        $push: {
+          reasons: "Signal lost after live tracking began",
+        },
+      },
+    );
+    if (escalated.modifiedCount > 0) {
+      console.log(
+        `[incidents] escalated ${escalated.modifiedCount} silent session(s)`,
+        { SIGNAL_LOSS_MS, cutoff: cutoff.toISOString() },
+      );
+    }
+
+    // Escalated first, then severity, then newest.
     const incidents = await ActiveIncident.find(filter)
-      .sort({ createdAt: -1 })
+      .sort({ escalated: -1, severityScore: -1, createdAt: -1 })
       .limit(50)
       .lean();
 
