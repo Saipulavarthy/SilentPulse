@@ -16,6 +16,7 @@ type UiState =
   | "fire"
   | "medical"
   | "threat"
+  | "unknown"
   | "low-bandwidth";
 
 type ActiveTab = "sos" | "overwatch";
@@ -56,21 +57,31 @@ const LOADING_STATUSES = [
   "Transmitting to AI Dispatcher...",
 ] as const;
 
-const ACTIVE_CRISIS_STATES: UiState[] = ["fire", "medical", "threat"];
+const ACTIVE_CRISIS_STATES: UiState[] = [
+  "fire",
+  "medical",
+  "threat",
+  "unknown",
+];
 const TELEMETRY_INTERVAL_MS = 30_000;
 
 function crisisTypeToUiState(crisisType: string): UiState {
   switch (crisisType) {
     case "ENVIRONMENTAL_HAZARD":
+    case "FIRE_ENVIRONMENTAL":
       return "fire";
     case "MEDICAL_CRISIS":
       return "medical";
     case "ACTIVE_THREAT":
+    case "SECURITY_THREAT":
       return "threat";
     case "UNKNOWN":
+    case "UNKNOWN_CRISIS":
+      return "unknown";
+    case "LOW_BANDWIDTH_SOS":
       return "low-bandwidth";
     default:
-      return "low-bandwidth";
+      return "unknown";
   }
 }
 
@@ -200,35 +211,46 @@ function LiveTelemetryBadge({ tone = "light" }: { tone?: "light" | "dark" }) {
   );
 }
 
-const MEDICAL_QUICK_ACTIONS = [
-  "Chest Pain",
-  "Asthma / Breathing",
-  "Severe Bleeding",
-  "I don't know",
-] as const;
+/** Master quick-action map for all 4 AI classifications (aliases → uiState). */
+const QUICK_ACTIONS_BY_CLASSIFICATION = {
+  SECURITY_THREAT: [
+    "Armed Intruder",
+    "Following Me",
+    "Domestic Violence",
+    "I don't know",
+  ],
+  MEDICAL_CRISIS: [
+    "Chest Pain",
+    "Asthma / Breathing",
+    "Severe Bleeding",
+    "I don't know",
+  ],
+  FIRE_ENVIRONMENTAL: [
+    "Trapped / Blocked",
+    "Smoke Inhalation",
+    "Chemical Spill",
+    "I don't know",
+  ],
+  UNKNOWN_CRISIS: [
+    "Need Help IMMEDIATELY!",
+    "Not Immediate / Non-Emergency",
+    "Accidental Trigger",
+    "I don't know",
+  ],
+} as const;
 
-const THREAT_QUICK_ACTIONS = [
-  "Armed Intruder",
-  "Following Me",
-  "Domestic Violence",
-  "I don't know",
-] as const;
-
-const FIRE_QUICK_ACTIONS = [
-  "Smoke / Fire Nearby",
-  "Trapped Inside",
-  "Need Evacuation Help",
-  "I don't know",
-] as const;
+const URGENT_QUICK_ACTION = "Need Help IMMEDIATELY!";
 
 function quickActionsForUiState(uiState: UiState): readonly string[] {
   switch (uiState) {
-    case "medical":
-      return MEDICAL_QUICK_ACTIONS;
     case "threat":
-      return THREAT_QUICK_ACTIONS;
+      return QUICK_ACTIONS_BY_CLASSIFICATION.SECURITY_THREAT;
+    case "medical":
+      return QUICK_ACTIONS_BY_CLASSIFICATION.MEDICAL_CRISIS;
     case "fire":
-      return FIRE_QUICK_ACTIONS;
+      return QUICK_ACTIONS_BY_CLASSIFICATION.FIRE_ENVIRONMENTAL;
+    case "unknown":
+      return QUICK_ACTIONS_BY_CLASSIFICATION.UNKNOWN_CRISIS;
     default:
       return [];
   }
@@ -311,29 +333,34 @@ function QuickActionMenu({
   tone?: "light" | "dark";
 }) {
   return (
-    <div className="mt-6 w-full max-w-md space-y-4">
+    <div className="mt-6 w-full max-w-lg space-y-4">
       <p
-        className={`text-center text-base font-semibold sm:text-lg ${
-          tone === "dark" ? "text-zinc-300" : "text-white"
+        className={`text-center text-lg font-black tracking-wide sm:text-2xl ${
+          tone === "dark" ? "text-white" : "text-white drop-shadow"
         }`}
       >
-        Can you tap to provide more details?
+        Tap to provide details to 911:
       </p>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        {actions.map((action) => (
-          <button
-            key={action}
-            type="button"
-            onClick={() => onSelect(action)}
-            className={`min-h-14 rounded-2xl px-4 py-4 text-base font-bold tracking-wide transition active:scale-[0.98] sm:text-lg ${
-              tone === "dark"
-                ? "border border-zinc-700 bg-zinc-900 text-zinc-200 hover:border-zinc-500 hover:bg-zinc-800"
-                : "bg-black/25 text-white ring-1 ring-white/30 hover:bg-black/40"
-            }`}
-          >
-            {action}
-          </button>
-        ))}
+        {actions.map((action) => {
+          const isUrgent = action === URGENT_QUICK_ACTION;
+          return (
+            <button
+              key={action}
+              type="button"
+              onClick={() => onSelect(action)}
+              className={`min-h-16 rounded-2xl px-4 py-5 text-base font-black tracking-wide transition active:scale-[0.98] sm:text-lg ${
+                isUrgent
+                  ? "border-2 border-red-300 bg-red-600 text-white shadow-[0_0_24px_rgba(220,38,38,0.65)] hover:bg-red-500"
+                  : tone === "dark"
+                    ? "border border-zinc-700 bg-zinc-900 text-zinc-200 hover:border-zinc-500 hover:bg-zinc-800"
+                    : "bg-black/25 text-white ring-1 ring-white/30 hover:bg-black/40"
+              }`}
+            >
+              {action}
+            </button>
+          );
+        })}
       </div>
       <p
         className={`text-center font-mono text-xs tracking-wide ${
@@ -940,6 +967,29 @@ function SosPageContent() {
                 {userProvidedContext === null ? (
                   <QuickActionMenu
                     actions={quickActionsForUiState("threat")}
+                    countdown={quickActionCountdown}
+                    onSelect={(selection) => void handleQuickAction(selection)}
+                    tone="dark"
+                  />
+                ) : (
+                  <CrisisDispatcherStatus
+                    dispatcherStatus={dispatcherStatus}
+                    userProvidedContext={userProvidedContext}
+                    tone="dark"
+                  />
+                )}
+              </div>
+            )}
+
+            {uiState === "unknown" && (
+              <div className="relative flex h-full w-full flex-col items-center justify-center overflow-y-auto bg-zinc-900 px-6 py-8 text-center">
+                <LiveTelemetryBadge tone="dark" />
+                <p className="text-2xl font-bold leading-tight tracking-wide text-white sm:text-4xl">
+                  CRISIS DETECTED. CLASSIFICATION UNCLEAR.
+                </p>
+                {userProvidedContext === null ? (
+                  <QuickActionMenu
+                    actions={quickActionsForUiState("unknown")}
                     countdown={quickActionCountdown}
                     onSelect={(selection) => void handleQuickAction(selection)}
                     tone="dark"
