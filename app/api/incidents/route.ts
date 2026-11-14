@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { connection, NextResponse } from "next/server";
 import { connectToDatabase } from "@/lib/mongodb";
 import { IceProfile } from "@/models/IceProfile";
 import {
@@ -8,6 +8,9 @@ import {
 } from "@/models/Incident";
 
 export async function GET(request: Request) {
+  // Must stay outside try/catch so Cache Components prerender can bail cleanly.
+  await connection();
+
   try {
     await connectToDatabase();
 
