@@ -8,17 +8,21 @@ import {
   tierStyle,
   typeLabel,
 } from './severity';
+import { ResponsePlanSection } from './ResponsePlanSection';
 import { SeveritySquare } from './SeveritySquare';
 import { FOCUS_RING, LABEL, MONO } from './ui';
+import type { PlanEntry } from './useResponsePlans';
 
 type Props = {
   incident: Incident | null;
   now: number | null;
   onAcknowledge: () => void;
   onResolve: () => void;
+  plan: PlanEntry | undefined;
+  onGeneratePlan: () => void;
 };
 
-export function IncidentDetail({ incident, now, onAcknowledge, onResolve }: Props) {
+export function IncidentDetail({ incident, now, onAcknowledge, onResolve, plan, onGeneratePlan }: Props) {
   if (!incident) {
     return (
       <section className="flex min-h-0 items-center justify-center border-l border-neutral-800 text-neutral-600">
@@ -55,6 +59,8 @@ export function IncidentDetail({ incident, now, onAcknowledge, onResolve }: Prop
         <Section title="Recommended response">
           <p className="text-neutral-100">{t.response}</p>
         </Section>
+
+        <ResponsePlanSection incident={incident} entry={plan} onGenerate={onGeneratePlan} now={now} />
 
         {(incident.crisisType === 'ACTIVE_THREAT' || incident.lowBandwidth) && (
           <div className="space-y-2 border-b border-neutral-800 px-4 py-3">
@@ -106,7 +112,7 @@ export function IncidentDetail({ incident, now, onAcknowledge, onResolve }: Prop
           </Grid>
         </Section>
 
-        <Section title="Medical profile (ICE)">
+        <Section title="Caller medical profile (ICE)">
           <Grid>
             <Row label="Name">
               {ice.name}

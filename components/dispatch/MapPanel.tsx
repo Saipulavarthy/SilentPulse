@@ -35,7 +35,8 @@ export function MapPanel(props: MapPanelProps) {
     <section className="relative isolate min-h-0 overflow-hidden" aria-label="Incident map">
       <IncidentMap {...props} />
 
-      <div className="pointer-events-none absolute bottom-3 left-3 z-[1000] border border-neutral-800 bg-[#0b0b0c]/90 px-2.5 py-2">
+      {/* Sits above the attribution, which wraps to two lines in satellite mode. */}
+      <div className="pointer-events-none absolute bottom-16 left-3 z-[1000] border border-neutral-800 bg-[#0b0b0c]/90 px-2.5 py-2">
         <div className={`${LABEL} mb-1.5`}>Severity</div>
         <ul className="space-y-1">
           {LEGEND.map(({ tier, range }) => (

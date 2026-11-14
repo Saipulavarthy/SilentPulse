@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useEffectEvent, useMemo, useState } from 'react';
+import { useEffect, useEffectEvent, useMemo, useState, useSyncExternalStore } from 'react';
 import type { Incident, IncidentStatus } from '@/types/incident';
 import { IncidentDetail } from '@/components/dispatch/IncidentDetail';
 import { IncidentQueue } from '@/components/dispatch/IncidentQueue';
@@ -8,7 +8,16 @@ import { MapPanel } from '@/components/dispatch/MapPanel';
 import { TopBar } from '@/components/dispatch/TopBar';
 import { FILTERS, applyFilter, type QueueFilter } from '@/components/dispatch/severity';
 import { useClock } from '@/components/dispatch/useClock';
+import { planContext, useResponsePlans } from '@/components/dispatch/useResponsePlans';
 import { mockIncidents } from './mockIncidents';
+
+/** `?mock=1`: response plans use the rule-based fallback and never call the API. */
+const useMockFlag = () =>
+  useSyncExternalStore(
+    () => () => {},
+    () => new URLSearchParams(window.location.search).get('mock') === '1',
+    () => false,
+  );
 
 export default function DispatchPage() {
   // Mock data only until the API is ready. Status changes are local state.
@@ -25,6 +34,18 @@ export default function DispatchPage() {
     [incidents],
   );
   const selected = incidents.find((i) => i._id === selectedId) ?? null;
+  const { plans, generate, prefetch } = useResponsePlans(useMockFlag());
+
+  /** On demand (button or G): plan for the selected incident, any severity. */
+  function generatePlan() {
+    if (selected) generate(selected, planContext(selected, incidents));
+  }
+
+  // Background plans for severity ≥ 7 incidents that are new or changed. This reacts to the
+  // incident list changing; it is deliberately not called from inside any polling fetch.
+  useEffect(() => {
+    prefetch(incidents);
+  }, [incidents, prefetch]);
 
   function changeFilter(next: QueueFilter) {
     setFilter(next);
@@ -79,6 +100,9 @@ export default function DispatchPage() {
       case 'r':
         setStatus('RESOLVED');
         break;
+      case 'g':
+        generatePlan();
+        break;
     }
   });
 
@@ -106,6 +130,8 @@ export default function DispatchPage() {
           now={now}
           onAcknowledge={() => setStatus('ACKNOWLEDGED')}
           onResolve={() => setStatus('RESOLVED')}
+          plan={selected ? plans[selected._id] : undefined}
+          onGeneratePlan={generatePlan}
         />
       </main>
     </>

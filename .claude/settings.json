@@ -56,7 +56,15 @@
       "Bash(node -e 'let s=\"\";process.stdin.on\\(\"data\",d=>s+=d\\).on\\(\"end\",\\(\\)=>{const o=JSON.parse\\(s\\);console.log\\({footprints:o.footprints,named:o.named,byPointInOutline:o.byPointInOutline,byWithin5m:o.byWithin5m,largeUnnamed:o.largeUnnamed}\\);for\\(const b of o.list\\)console.log\\(`${b.lat}, ${b.lng}  ${b.areaM2} m²  ${b.heightM} m`\\)}\\)')",
       "Bash(node --experimental-websocket check-coverage.mjs)",
       "Bash(node --experimental-websocket check-fieldstone.mjs)",
-      "Bash(node -e 'let s=\"\";process.stdin.on\\(\"data\",d=>s+=d\\).on\\(\"end\",\\(\\)=>{const o=JSON.parse\\(s.slice\\(s.indexOf\\(\"{\"\\)\\)\\);console.log\\(JSON.stringify\\(o.hovers\\)\\)}\\)')"
+      "Bash(node -e 'let s=\"\";process.stdin.on\\(\"data\",d=>s+=d\\).on\\(\"end\",\\(\\)=>{const o=JSON.parse\\(s.slice\\(s.indexOf\\(\"{\"\\)\\)\\);console.log\\(JSON.stringify\\(o.hovers\\)\\)}\\)')",
+      "Bash(node --experimental-websocket check-plan.mjs)",
+      "Bash(git check-ignore *)",
+      "Bash(node --experimental-websocket check-ai.mjs)",
+      "Bash(tee ai-results.json)",
+      "Bash(GEMINI_MODEL=gemini-3.8-flash npx next start -p 3100)",
+      "Bash(GEMINI_MODEL=gemini-3.5-flash npx next start -p 3100)",
+      "Bash(node -e 'const o=require\\(\"./ai-run-1.json\"\\); for \\(const [k,v] of Object.entries\\(o\\)\\) { console.log\\(\"=== \"+k\\); console.log\\(JSON.stringify\\(v.body,null,2\\)\\); }')",
+      "Bash(node -e 'const o=require\\(\"/private/tmp/claude-503/-Users-kirannew-Hackathons-silent-pulse/684fa399-f8b4-415d-b54b-c958deccb276/scratchpad/plans-v2.json\"\\); console.log\\(\"violations:\", JSON.stringify\\(o[\"mock-001\"].stealthViolations\\)\\); console.log\\(JSON.stringify\\(o[\"mock-001\"].plan,null,2\\)\\)')"
     ],
     "additionalDirectories": [
       "/private/tmp/claude-503/-Users-kirannew-Hackathons-silent-pulse/684fa399-f8b4-415d-b54b-c958deccb276/scratchpad"
