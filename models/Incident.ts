@@ -69,6 +69,8 @@ const ActiveIncidentSchema = new Schema(
     victimInstructions: { type: String, required: true },
     /** ICE snapshot used for this SOS (phone and/or Mongo merge). */
     iceProfile: { type: IncidentIceSnapshotSchema, default: null },
+    /** Victim quick-action selection from the phone crisis UI. */
+    userProvidedContext: { type: String, default: null },
     status: {
       type: String,
       enum: INCIDENT_STATUSES,

@@ -200,37 +200,147 @@ function LiveTelemetryBadge({ tone = "light" }: { tone?: "light" | "dark" }) {
   );
 }
 
+const MEDICAL_QUICK_ACTIONS = [
+  "Chest Pain",
+  "Asthma / Breathing",
+  "Severe Bleeding",
+  "I don't know",
+] as const;
+
+const THREAT_QUICK_ACTIONS = [
+  "Armed Intruder",
+  "Following Me",
+  "Domestic Violence",
+  "I don't know",
+] as const;
+
+const FIRE_QUICK_ACTIONS = [
+  "Smoke / Fire Nearby",
+  "Trapped Inside",
+  "Need Evacuation Help",
+  "I don't know",
+] as const;
+
+function quickActionsForUiState(uiState: UiState): readonly string[] {
+  switch (uiState) {
+    case "medical":
+      return MEDICAL_QUICK_ACTIONS;
+    case "threat":
+      return THREAT_QUICK_ACTIONS;
+    case "fire":
+      return FIRE_QUICK_ACTIONS;
+    default:
+      return [];
+  }
+}
+
+function formatContextLabel(context: string): string {
+  if (context === "NO_RESPONSE_RECEIVED") return "No Response";
+  return context;
+}
+
 function CrisisDispatcherStatus({
   dispatcherStatus,
+  userProvidedContext,
   tone = "light",
 }: {
   dispatcherStatus: "reviewing" | "dispatched";
+  userProvidedContext: string | null;
   tone?: "light" | "dark";
 }) {
   if (dispatcherStatus === "dispatched") {
     return (
-      <p
-        className={`mt-6 text-2xl font-black leading-tight tracking-wide sm:text-4xl ${
-          tone === "dark" ? "text-emerald-400" : "text-white"
-        }`}
-      >
-        HELP IS ON THE WAY. FIRST RESPONDERS DISPATCHED.
-      </p>
+      <div className="mt-6 space-y-3">
+        <p
+          className={`text-2xl font-black leading-tight tracking-wide sm:text-4xl ${
+            tone === "dark" ? "text-emerald-400" : "text-white"
+          }`}
+        >
+          HELP IS ON THE WAY. FIRST RESPONDERS DISPATCHED.
+        </p>
+        {userProvidedContext && (
+          <p
+            className={`text-xs tracking-wide ${
+              tone === "dark" ? "text-zinc-500" : "text-white/70"
+            }`}
+          >
+            Context provided: {formatContextLabel(userProvidedContext)}
+          </p>
+        )}
+      </div>
     );
   }
 
   return (
-    <div
-      className={`mt-6 flex items-center justify-center gap-3 ${
-        tone === "dark" ? "text-zinc-400" : "text-white/90"
-      }`}
-    >
-      <span
-        className="h-2.5 w-2.5 shrink-0 animate-pulse rounded-full bg-amber-400 shadow-[0_0_10px_rgba(251,191,36,0.9)]"
-        aria-hidden
-      />
-      <p className="text-sm font-medium leading-snug tracking-wide sm:text-base">
-        Live Telemetry Connected. Dispatcher is reviewing your situation.
+    <div className="mt-6 flex flex-col items-center gap-3">
+      <div
+        className={`flex items-center justify-center gap-3 ${
+          tone === "dark" ? "text-zinc-400" : "text-white/90"
+        }`}
+      >
+        <span
+          className="h-2.5 w-2.5 shrink-0 animate-pulse rounded-full bg-amber-400 shadow-[0_0_10px_rgba(251,191,36,0.9)]"
+          aria-hidden
+        />
+        <p className="text-sm font-medium leading-snug tracking-wide sm:text-base">
+          Live Telemetry Connected. Dispatcher is reviewing your situation.
+        </p>
+      </div>
+      {userProvidedContext && (
+        <p
+          className={`text-xs tracking-wide ${
+            tone === "dark" ? "text-zinc-500" : "text-white/70"
+          }`}
+        >
+          Context provided: {formatContextLabel(userProvidedContext)}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function QuickActionMenu({
+  actions,
+  countdown,
+  onSelect,
+  tone = "light",
+}: {
+  actions: readonly string[];
+  countdown: number;
+  onSelect: (selection: string) => void;
+  tone?: "light" | "dark";
+}) {
+  return (
+    <div className="mt-6 w-full max-w-md space-y-4">
+      <p
+        className={`text-center text-base font-semibold sm:text-lg ${
+          tone === "dark" ? "text-zinc-300" : "text-white"
+        }`}
+      >
+        Can you tap to provide more details?
+      </p>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {actions.map((action) => (
+          <button
+            key={action}
+            type="button"
+            onClick={() => onSelect(action)}
+            className={`min-h-14 rounded-2xl px-4 py-4 text-base font-bold tracking-wide transition active:scale-[0.98] sm:text-lg ${
+              tone === "dark"
+                ? "border border-zinc-700 bg-zinc-900 text-zinc-200 hover:border-zinc-500 hover:bg-zinc-800"
+                : "bg-black/25 text-white ring-1 ring-white/30 hover:bg-black/40"
+            }`}
+          >
+            {action}
+          </button>
+        ))}
+      </div>
+      <p
+        className={`text-center font-mono text-xs tracking-wide ${
+          tone === "dark" ? "text-zinc-500" : "text-white/70"
+        }`}
+      >
+        Auto-sending in {countdown}s...
       </p>
     </div>
   );
@@ -241,9 +351,16 @@ function SosPageContent() {
   const [activeTab, setActiveTab] = useState<ActiveTab>("sos");
   const [isSafeWalkArmed, setIsSafeWalkArmed] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [userProvidedContext, setUserProvidedContext] = useState<string | null>(
+    null,
+  );
+  const [quickActionCountdown, setQuickActionCountdown] = useState(10);
   const [dispatcherStatus, setDispatcherStatus] = useState<
     "reviewing" | "dispatched"
   >("reviewing");
+  const [isCountingDown, setIsCountingDown] = useState(false);
+  const [countdown, setCountdown] = useState(5);
   const [loadingStatusIndex, setLoadingStatusIndex] = useState(0);
   const [liveGps, setLiveGps] = useState<{ lat: number; lng: number } | null>(
     null,
@@ -255,12 +372,22 @@ function SosPageContent() {
   const sosInFlightRef = useRef(false);
   const watchIdRef = useRef<number | null>(null);
   const telemetryIntervalRef = useRef<number | null>(null);
+  const countdownIntervalRef = useRef<number | null>(null);
+  const quickActionIntervalRef = useRef<number | null>(null);
   const sessionIdRef = useRef<string | null>(null);
+  const userProvidedContextRef = useRef<string | null>(null);
 
   const clearTelemetryInterval = useCallback(() => {
     if (telemetryIntervalRef.current !== null) {
       window.clearInterval(telemetryIntervalRef.current);
       telemetryIntervalRef.current = null;
+    }
+  }, []);
+
+  const clearCountdownInterval = useCallback(() => {
+    if (countdownIntervalRef.current !== null) {
+      window.clearInterval(countdownIntervalRef.current);
+      countdownIntervalRef.current = null;
     }
   }, []);
 
@@ -352,11 +479,17 @@ function SosPageContent() {
 
         const data = (await response.json()) as {
           crisisType?: string;
+          sessionId?: string;
           dispatcherStatus?: "reviewing" | "dispatched";
         };
         if (!data.crisisType) {
           throw new Error("Triage API returned no crisisType");
         }
+
+        const resolvedSessionId = data.sessionId || currentSessionId;
+        setActiveSessionId(resolvedSessionId);
+        sessionIdRef.current = resolvedSessionId;
+        setSessionId(resolvedSessionId);
 
         if (data.dispatcherStatus === "dispatched") {
           setDispatcherStatus("dispatched");
@@ -396,6 +529,10 @@ function SosPageContent() {
 
     sessionIdRef.current = newSessionId;
     setSessionId(newSessionId);
+    setActiveSessionId(newSessionId);
+    userProvidedContextRef.current = null;
+    setUserProvidedContext(null);
+    setQuickActionCountdown(10);
     setDispatcherStatus("reviewing");
     setActiveTab("sos");
     setUiState("loading");
@@ -403,22 +540,143 @@ function SosPageContent() {
     await captureAndSendTelemetry(newSessionId, { updateUi: true });
   }, [captureAndSendTelemetry]);
 
-  const resetSession = useCallback(() => {
-    clearTelemetryInterval();
-    sessionIdRef.current = null;
-    setSessionId(null);
-    setDispatcherStatus("reviewing");
+  const handleQuickAction = useCallback(
+    async (selection: string) => {
+      if (userProvidedContextRef.current) return;
+
+      userProvidedContextRef.current = selection;
+      setUserProvidedContext(selection);
+
+      if (quickActionIntervalRef.current !== null) {
+        window.clearInterval(quickActionIntervalRef.current);
+        quickActionIntervalRef.current = null;
+      }
+
+      const sessionForContext =
+        activeSessionId ?? sessionIdRef.current ?? sessionId;
+
+      try {
+        await fetch("/api/triage/context", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sessionId: sessionForContext,
+            userContext: selection,
+          }),
+        });
+      } catch (error) {
+        console.error("Quick-action context send failed:", error);
+      }
+    },
+    [activeSessionId, sessionId],
+  );
+
+  const cancelSosCountdown = useCallback(() => {
+    clearCountdownInterval();
+    setIsCountingDown(false);
+    setCountdown(5);
     setActiveTab("sos");
     setUiState("idle");
-  }, [clearTelemetryInterval]);
+  }, [clearCountdownInterval]);
 
-  // Apple Lock Screen shortcut: /sos?auto=true bypasses the HELP tap
+  const startSosCountdown = useCallback(() => {
+    if (sosInFlightRef.current || countdownIntervalRef.current !== null) return;
+
+    setActiveTab("sos");
+    setUiState("idle");
+    setCountdown(5);
+    setIsCountingDown(true);
+
+    countdownIntervalRef.current = window.setInterval(() => {
+      setCountdown((prev) => {
+        if (prev <= 1) {
+          clearCountdownInterval();
+          setIsCountingDown(false);
+          setCountdown(5);
+          // Fire telemetry after the grace period completes
+          void triggerSOS();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  }, [clearCountdownInterval, triggerSOS]);
+
+  const resetSession = useCallback(() => {
+    clearCountdownInterval();
+    clearTelemetryInterval();
+    if (quickActionIntervalRef.current !== null) {
+      window.clearInterval(quickActionIntervalRef.current);
+      quickActionIntervalRef.current = null;
+    }
+    sessionIdRef.current = null;
+    userProvidedContextRef.current = null;
+    setSessionId(null);
+    setActiveSessionId(null);
+    setUserProvidedContext(null);
+    setQuickActionCountdown(10);
+    setDispatcherStatus("reviewing");
+    setIsCountingDown(false);
+    setCountdown(5);
+    setActiveTab("sos");
+    setUiState("idle");
+  }, [clearCountdownInterval, clearTelemetryInterval]);
+
+  // Apple Lock Screen shortcut: /sos?auto=true still gets a 5s cancel window
   useEffect(() => {
     if (searchParams.get("auto") === "true" && !hasAutoTriggered.current) {
       hasAutoTriggered.current = true;
-      void triggerSOS();
+      startSosCountdown();
     }
-  }, [searchParams, triggerSOS]);
+  }, [searchParams, startSosCountdown]);
+
+  useEffect(() => {
+    return () => {
+      clearCountdownInterval();
+      if (quickActionIntervalRef.current !== null) {
+        window.clearInterval(quickActionIntervalRef.current);
+        quickActionIntervalRef.current = null;
+      }
+    };
+  }, [clearCountdownInterval]);
+
+  // 10s quick-action menu timeout while crisis is active and no context yet
+  useEffect(() => {
+    const menuVisible =
+      ACTIVE_CRISIS_STATES.includes(uiState) && userProvidedContext === null;
+
+    if (quickActionIntervalRef.current !== null) {
+      window.clearInterval(quickActionIntervalRef.current);
+      quickActionIntervalRef.current = null;
+    }
+
+    if (!menuVisible) {
+      return;
+    }
+
+    setQuickActionCountdown(10);
+
+    quickActionIntervalRef.current = window.setInterval(() => {
+      setQuickActionCountdown((prev) => {
+        if (prev <= 1) {
+          if (quickActionIntervalRef.current !== null) {
+            window.clearInterval(quickActionIntervalRef.current);
+            quickActionIntervalRef.current = null;
+          }
+          void handleQuickAction("NO_RESPONSE_RECEIVED");
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => {
+      if (quickActionIntervalRef.current !== null) {
+        window.clearInterval(quickActionIntervalRef.current);
+        quickActionIntervalRef.current = null;
+      }
+    };
+  }, [uiState, userProvidedContext, handleQuickAction]);
 
   // Rotate high-tech status lines while capturing / transmitting
   useEffect(() => {
@@ -494,13 +752,21 @@ function SosPageContent() {
   }, [isSafeWalkArmed]);
 
   function ensureSessionForSim() {
-    if (sessionIdRef.current) return;
+    userProvidedContextRef.current = null;
+    setUserProvidedContext(null);
+    setQuickActionCountdown(10);
+
+    if (sessionIdRef.current) {
+      setActiveSessionId(sessionIdRef.current);
+      return;
+    }
     const id =
       typeof crypto !== "undefined" && "randomUUID" in crypto
         ? crypto.randomUUID()
         : Date.now().toString();
     sessionIdRef.current = id;
     setSessionId(id);
+    setActiveSessionId(id);
   }
 
   return (
@@ -518,7 +784,7 @@ function SosPageContent() {
       />
 
       {/* ICE profile settings — idle only so it never distracts during a crisis */}
-      {uiState === "idle" && (
+      {uiState === "idle" && !isCountingDown && (
         <Link
           href="/?edit=true"
           className="absolute top-6 right-6 z-40 rounded-full p-2 text-gray-400 transition hover:bg-zinc-800 hover:text-white"
@@ -545,11 +811,33 @@ function SosPageContent() {
       <div className="h-[calc(100%-7.5rem)] w-full overflow-hidden">
         {activeTab === "sos" && (
           <>
-            {uiState === "idle" && (
+            {uiState === "idle" && isCountingDown && (
+              <div className="flex h-full w-full flex-col items-center justify-center gap-10 bg-red-950 px-6 text-center">
+                <p className="text-xs font-semibold uppercase tracking-[0.35em] text-red-400">
+                  SOS arms in
+                </p>
+                <p className="text-[8rem] font-black leading-none tracking-tighter text-white tabular-nums sm:text-[10rem]">
+                  {countdown}
+                </p>
+                <p className="max-w-xs text-sm text-red-200/80">
+                  Telemetry will start automatically. Cancel if this was a false
+                  alarm.
+                </p>
+                <button
+                  type="button"
+                  onClick={cancelSosCountdown}
+                  className="rounded-2xl border-2 border-white bg-white px-10 py-4 text-lg font-black tracking-wide text-red-700 transition hover:bg-red-100 active:scale-[0.98]"
+                >
+                  CANCEL SOS
+                </button>
+              </div>
+            )}
+
+            {uiState === "idle" && !isCountingDown && (
               <div className="flex h-full w-full items-center justify-center">
                 <button
                   type="button"
-                  onClick={() => void triggerSOS()}
+                  onClick={startSosCountdown}
                   className="flex h-[65vmin] w-[65vmin] max-h-[400px] max-w-[400px] items-center justify-center rounded-full bg-red-600 text-4xl font-black tracking-widest text-white shadow-[0_0_60px_rgba(220,38,38,0.55)] animate-pulse transition active:scale-95 sm:text-6xl"
                   aria-label="Send SOS help signal"
                 >
@@ -596,39 +884,73 @@ function SosPageContent() {
             )}
 
             {uiState === "fire" && (
-              <div className="relative flex h-full w-full flex-col items-center justify-center bg-orange-600 px-8 text-center">
+              <div className="relative flex h-full w-full flex-col items-center justify-center overflow-y-auto bg-orange-600 px-6 py-8 text-center">
                 <LiveTelemetryBadge />
                 <p className="text-2xl font-bold leading-tight tracking-wide text-white sm:text-4xl">
                   ENVIRONMENTAL HAZARD DETECTED. PROCEED TO EXITS.
                 </p>
-                <CrisisDispatcherStatus dispatcherStatus={dispatcherStatus} />
+                {userProvidedContext === null ? (
+                  <QuickActionMenu
+                    actions={quickActionsForUiState("fire")}
+                    countdown={quickActionCountdown}
+                    onSelect={(selection) => void handleQuickAction(selection)}
+                  />
+                ) : (
+                  <CrisisDispatcherStatus
+                    dispatcherStatus={dispatcherStatus}
+                    userProvidedContext={userProvidedContext}
+                  />
+                )}
               </div>
             )}
 
             {uiState === "medical" && (
-              <div className="relative flex h-full w-full flex-col items-center justify-center gap-6 bg-blue-600 px-8 text-center">
+              <div className="relative flex h-full w-full flex-col items-center justify-center gap-4 overflow-y-auto bg-blue-600 px-6 py-8 text-center">
                 <LiveTelemetryBadge />
-                <div
-                  className="h-48 w-48 animate-pulse rounded-full bg-blue-300/40 ring-8 ring-white/30 sm:h-64 sm:w-64"
-                  aria-hidden
-                />
+                {userProvidedContext !== null && (
+                  <div
+                    className="h-32 w-32 animate-pulse rounded-full bg-blue-300/40 ring-8 ring-white/30 sm:h-40 sm:w-40"
+                    aria-hidden
+                  />
+                )}
                 <p className="text-xl font-bold leading-tight tracking-wide text-white sm:text-3xl">
                   MEDICAL CRISIS. BREATHE WITH THE CIRCLE.
                 </p>
-                <CrisisDispatcherStatus dispatcherStatus={dispatcherStatus} />
+                {userProvidedContext === null ? (
+                  <QuickActionMenu
+                    actions={quickActionsForUiState("medical")}
+                    countdown={quickActionCountdown}
+                    onSelect={(selection) => void handleQuickAction(selection)}
+                  />
+                ) : (
+                  <CrisisDispatcherStatus
+                    dispatcherStatus={dispatcherStatus}
+                    userProvidedContext={userProvidedContext}
+                  />
+                )}
               </div>
             )}
 
             {uiState === "threat" && (
-              <div className="relative flex h-full w-full flex-col items-center justify-center bg-black px-8 text-center">
+              <div className="relative flex h-full w-full flex-col items-center justify-center overflow-y-auto bg-black px-6 py-8 text-center">
                 <LiveTelemetryBadge tone="dark" />
                 <p className="text-sm font-medium tracking-wide text-zinc-500 sm:text-base">
                   THREAT DETECTED. SCREEN DARKENED FOR SAFETY.
                 </p>
-                <CrisisDispatcherStatus
-                  dispatcherStatus={dispatcherStatus}
-                  tone="dark"
-                />
+                {userProvidedContext === null ? (
+                  <QuickActionMenu
+                    actions={quickActionsForUiState("threat")}
+                    countdown={quickActionCountdown}
+                    onSelect={(selection) => void handleQuickAction(selection)}
+                    tone="dark"
+                  />
+                ) : (
+                  <CrisisDispatcherStatus
+                    dispatcherStatus={dispatcherStatus}
+                    userProvidedContext={userProvidedContext}
+                    tone="dark"
+                  />
+                )}
               </div>
             )}
 
