@@ -46,7 +46,7 @@ export async function PATCH(
     const updated = await ActiveIncident.findByIdAndUpdate(
       id,
       { status: status as IncidentStatus },
-      { new: true },
+      { returnDocument: 'after' },
     ).lean();
 
     if (!updated) {
