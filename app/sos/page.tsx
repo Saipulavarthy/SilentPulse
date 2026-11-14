@@ -31,25 +31,32 @@ type IceProfile = {
   sensoryNotes: string;
 };
 
+type GpsCoords = { lat: number; lng: number };
+
 type SosPayload = {
   image: string;
   audio: string;
-  gps: { lat: number; lng: number } | null;
+  gps: GpsCoords;
   iceProfile: IceProfile | null;
+  sessionId: string;
 };
 
 const ICE_STORAGE_KEY = "silentpulse_ice_profile";
 
-function readIceProfile(): IceProfile | null {
-  try {
-    const savedProfile = localStorage.getItem(ICE_STORAGE_KEY);
-    if (!savedProfile) return null;
-    return JSON.parse(savedProfile) as IceProfile;
-  } catch (error) {
-    console.error("Failed to parse ICE profile:", error);
-    return null;
-  }
-}
+/** UMass Amherst fallback for local testing when GPS is denied/unavailable */
+const FALLBACK_GPS: GpsCoords = {
+  lat: 42.3868,
+  lng: -72.5301,
+};
+
+const LOADING_STATUSES = [
+  "SILENT OVERWATCH ARMED",
+  "Capturing environmental audio & visual telemetry...",
+  "Transmitting to AI Dispatcher...",
+] as const;
+
+const ACTIVE_CRISIS_STATES: UiState[] = ["fire", "medical", "threat"];
+const TELEMETRY_INTERVAL_MS = 30_000;
 
 function crisisTypeToUiState(crisisType: string): UiState {
   switch (crisisType) {
@@ -59,6 +66,8 @@ function crisisTypeToUiState(crisisType: string): UiState {
       return "medical";
     case "ACTIVE_THREAT":
       return "threat";
+    case "LOW_BANDWIDTH_SOS":
+      return "low-bandwidth";
     default:
       return "low-bandwidth";
   }
@@ -79,22 +88,48 @@ function blobToBase64(blob: Blob): Promise<string> {
   });
 }
 
-function getGpsCoordinates(): Promise<{ lat: number; lng: number } | null> {
+function getGpsCoordinates(timeoutMs = 5000): Promise<GpsCoords> {
   return new Promise((resolve) => {
     if (!navigator.geolocation) {
-      resolve(null);
+      console.warn("Geolocation unavailable — using UMass Amherst fallback GPS");
+      resolve(FALLBACK_GPS);
       return;
     }
 
+    let settled = false;
+
+    const finish = (coords: GpsCoords, usedFallback: boolean) => {
+      if (settled) return;
+      settled = true;
+      if (usedFallback) {
+        console.warn(
+          "GPS failed, timed out, or denied — using UMass Amherst fallback GPS",
+          coords,
+        );
+      }
+      resolve(coords);
+    };
+
+    const timer = window.setTimeout(() => {
+      finish(FALLBACK_GPS, true);
+    }, timeoutMs);
+
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        resolve({
-          lat: position.coords.latitude,
-          lng: position.coords.longitude,
-        });
+        window.clearTimeout(timer);
+        finish(
+          {
+            lat: position.coords.latitude,
+            lng: position.coords.longitude,
+          },
+          false,
+        );
       },
-      () => resolve(null),
-      { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 },
+      () => {
+        window.clearTimeout(timer);
+        finish(FALLBACK_GPS, true);
+      },
+      { enableHighAccuracy: true, timeout: timeoutMs, maximumAge: 0 },
     );
   });
 }
@@ -146,10 +181,30 @@ function recordAudioBase64(
   });
 }
 
+function LiveTelemetryBadge({ tone = "light" }: { tone?: "light" | "dark" }) {
+  return (
+    <div
+      className={`absolute left-4 top-4 z-20 flex items-center gap-2 rounded-full px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] backdrop-blur ${
+        tone === "dark"
+          ? "bg-zinc-900/80 text-zinc-400"
+          : "bg-black/35 text-white"
+      }`}
+    >
+      <span
+        className="h-2 w-2 animate-pulse rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.9)]"
+        aria-hidden
+      />
+      Transmitting Live Telemetry...
+    </div>
+  );
+}
+
 function SosPageContent() {
   const [uiState, setUiState] = useState<UiState>("idle");
   const [activeTab, setActiveTab] = useState<ActiveTab>("sos");
   const [isMonitoring, setIsMonitoring] = useState(false);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [loadingStatusIndex, setLoadingStatusIndex] = useState(0);
   const [liveGps, setLiveGps] = useState<{ lat: number; lng: number } | null>(
     null,
   );
@@ -159,92 +214,154 @@ function SosPageContent() {
   const autoTriggeredRef = useRef(false);
   const sosInFlightRef = useRef(false);
   const watchIdRef = useRef<number | null>(null);
+  const telemetryIntervalRef = useRef<number | null>(null);
+  const sessionIdRef = useRef<string | null>(null);
+
+  const clearTelemetryInterval = useCallback(() => {
+    if (telemetryIntervalRef.current !== null) {
+      window.clearInterval(telemetryIntervalRef.current);
+      telemetryIntervalRef.current = null;
+    }
+  }, []);
+
+  const captureAndSendTelemetry = useCallback(
+    async (
+      currentSessionId: string,
+      options: { updateUi: boolean } = { updateUi: false },
+    ): Promise<UiState | null> => {
+      if (sosInFlightRef.current) return null;
+      sosInFlightRef.current = true;
+
+      let stream: MediaStream | null = null;
+
+      try {
+        const gpsPromise = getGpsCoordinates();
+
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: "environment" } },
+          audio: true,
+        });
+
+        const video = videoRef.current;
+        const canvas = canvasRef.current;
+        if (!video || !canvas) {
+          throw new Error("Hidden video/canvas elements are unavailable");
+        }
+
+        video.srcObject = stream;
+        video.muted = true;
+        video.playsInline = true;
+        await video.play();
+
+        if (video.readyState < 2) {
+          await new Promise<void>((resolve) => {
+            video.onloadeddata = () => resolve();
+          });
+        }
+        await new Promise((resolve) => setTimeout(resolve, 150));
+
+        canvas.width = video.videoWidth || 640;
+        canvas.height = video.videoHeight || 480;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          throw new Error("Could not get canvas 2D context");
+        }
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const image = canvas.toDataURL("image/jpeg", 0.5);
+
+        const [audio, gps] = await Promise.all([
+          recordAudioBase64(stream, 3000),
+          gpsPromise,
+        ]);
+
+        stream.getTracks().forEach((track) => track.stop());
+        stream = null;
+        video.srcObject = null;
+
+        const savedProfile = localStorage.getItem(ICE_STORAGE_KEY);
+        const iceProfile = JSON.parse(savedProfile || "{}") as IceProfile;
+
+        const payload: SosPayload = {
+          image,
+          audio,
+          gps,
+          iceProfile,
+          sessionId: currentSessionId,
+        };
+
+        console.log("SOS Payload:", payload);
+
+        const response = await fetch("/api/triage", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            image,
+            audio,
+            gps,
+            iceProfile: JSON.parse(savedProfile || "{}"),
+            sessionId: currentSessionId,
+            userId: "user_demo_01",
+            imageBase64: image,
+            audioBase64: audio,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Triage API failed with status ${response.status}`);
+        }
+
+        const data = (await response.json()) as { crisisType?: string };
+        if (!data.crisisType) {
+          throw new Error("Triage API returned no crisisType");
+        }
+
+        const nextState = crisisTypeToUiState(data.crisisType);
+        if (options.updateUi) {
+          setUiState(nextState);
+        }
+        return nextState;
+      } catch (error) {
+        console.error("Telemetry capture/send failed:", error);
+        if (options.updateUi) {
+          setUiState("low-bandwidth");
+        }
+        return options.updateUi ? "low-bandwidth" : null;
+      } finally {
+        if (stream) {
+          stream.getTracks().forEach((track) => track.stop());
+        }
+        if (videoRef.current) {
+          videoRef.current.srcObject = null;
+        }
+        sosInFlightRef.current = false;
+      }
+    },
+    [],
+  );
 
   const triggerSOS = useCallback(async () => {
     if (sosInFlightRef.current) return;
-    sosInFlightRef.current = true;
 
-    // Immediate UI feedback before any async hardware work
+    const newSessionId =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : Date.now().toString();
+
+    sessionIdRef.current = newSessionId;
+    setSessionId(newSessionId);
     setActiveTab("sos");
     setUiState("loading");
 
-    let stream: MediaStream | null = null;
+    await captureAndSendTelemetry(newSessionId, { updateUi: true });
+  }, [captureAndSendTelemetry]);
 
-    try {
-      const gpsPromise = getGpsCoordinates();
-
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: "environment" } },
-        audio: true,
-      });
-
-      const video = videoRef.current;
-      const canvas = canvasRef.current;
-      if (!video || !canvas) {
-        throw new Error("Hidden video/canvas elements are unavailable");
-      }
-
-      video.srcObject = stream;
-      video.muted = true;
-      video.playsInline = true;
-      await video.play();
-
-      // Ensure at least one decoded frame is available
-      if (video.readyState < 2) {
-        await new Promise<void>((resolve) => {
-          video.onloadeddata = () => resolve();
-        });
-      }
-      await new Promise((resolve) => setTimeout(resolve, 150));
-
-      canvas.width = video.videoWidth || 640;
-      canvas.height = video.videoHeight || 480;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) {
-        throw new Error("Could not get canvas 2D context");
-      }
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const image = canvas.toDataURL("image/jpeg", 0.5);
-
-      // Record ambient audio for exactly 3 seconds while stream is live
-      const [audio, gps] = await Promise.all([
-        recordAudioBase64(stream, 3000),
-        gpsPromise,
-      ]);
-
-      // Stop camera + mic immediately after capture to save battery
-      stream.getTracks().forEach((track) => track.stop());
-      stream = null;
-      video.srcObject = null;
-
-      const iceProfile = readIceProfile();
-
-      const payload: SosPayload = {
-        image,
-        audio,
-        gps,
-        iceProfile,
-      };
-
-      console.log("SOS Payload:", payload);
-
-      // Mock backend — real fetch comes later
-      await new Promise((resolve) => setTimeout(resolve, 3000));
-      const mockResponse = { crisisType: "MEDICAL_CRISIS" as const };
-      setUiState(crisisTypeToUiState(mockResponse.crisisType));
-    } catch (error) {
-      console.error("SOS trigger failed:", error);
-      setUiState("low-bandwidth");
-    } finally {
-      if (stream) {
-        stream.getTracks().forEach((track) => track.stop());
-      }
-      if (videoRef.current) {
-        videoRef.current.srcObject = null;
-      }
-      sosInFlightRef.current = false;
-    }
-  }, []);
+  const resetSession = useCallback(() => {
+    clearTelemetryInterval();
+    sessionIdRef.current = null;
+    setSessionId(null);
+    setActiveTab("sos");
+    setUiState("idle");
+  }, [clearTelemetryInterval]);
 
   useEffect(() => {
     if (searchParams.get("auto") === "true" && !autoTriggeredRef.current) {
@@ -252,6 +369,43 @@ function SosPageContent() {
       void triggerSOS();
     }
   }, [searchParams, triggerSOS]);
+
+  // Rotate high-tech status lines while capturing / transmitting
+  useEffect(() => {
+    if (uiState !== "loading") {
+      setLoadingStatusIndex(0);
+      return;
+    }
+
+    const id = window.setInterval(() => {
+      setLoadingStatusIndex((index) => (index + 1) % LOADING_STATUSES.length);
+    }, 1800);
+
+    return () => window.clearInterval(id);
+  }, [uiState]);
+
+  // Autonomous continuous telemetry every 30s during active crises
+  useEffect(() => {
+    clearTelemetryInterval();
+
+    const activeSession = sessionIdRef.current ?? sessionId;
+    const shouldLoop =
+      ACTIVE_CRISIS_STATES.includes(uiState) && Boolean(activeSession);
+
+    if (!shouldLoop || !activeSession) {
+      return;
+    }
+
+    telemetryIntervalRef.current = window.setInterval(() => {
+      const id = sessionIdRef.current ?? activeSession;
+      if (!id) return;
+      void captureAndSendTelemetry(id, { updateUi: false });
+    }, TELEMETRY_INTERVAL_MS);
+
+    return () => {
+      clearTelemetryInterval();
+    };
+  }, [uiState, sessionId, captureAndSendTelemetry, clearTelemetryInterval]);
 
   // Live GPS readout while Safe Walk / Overwatch is armed
   useEffect(() => {
@@ -289,6 +443,16 @@ function SosPageContent() {
     };
   }, [isMonitoring]);
 
+  function ensureSessionForSim() {
+    if (sessionIdRef.current) return;
+    const id =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : Date.now().toString();
+    sessionIdRef.current = id;
+    setSessionId(id);
+  }
+
   return (
     <main className="relative h-screen w-screen overflow-hidden bg-zinc-900 text-white">
       {/* Hidden capture surfaces for getUserMedia → canvas snapshot */}
@@ -321,19 +485,45 @@ function SosPageContent() {
             )}
 
             {uiState === "loading" && (
-              <div className="flex h-full w-full flex-col items-center justify-center gap-6 bg-zinc-900">
+              <div className="flex h-full w-full flex-col items-center justify-center gap-8 bg-black px-6">
+                <div className="flex items-center gap-3">
+                  <span
+                    className="h-3 w-3 animate-pulse rounded-full bg-red-600 shadow-[0_0_12px_rgba(220,38,38,0.9)]"
+                    aria-hidden
+                  />
+                  <p className="font-mono text-xs font-semibold uppercase tracking-[0.35em] text-red-500">
+                    REC · Live Telemetry
+                  </p>
+                </div>
+
                 <div
-                  className="h-16 w-16 animate-spin rounded-full border-4 border-zinc-600 border-t-white"
+                  className="flex h-16 items-end justify-center gap-1.5"
                   aria-hidden
-                />
-                <p className="text-lg font-medium tracking-wide text-zinc-200">
-                  Analyzing Context...
-                </p>
+                >
+                  <span className="w-2 animate-bounce rounded-full bg-red-500 [animation-delay:0ms] h-6" />
+                  <span className="w-2 animate-bounce rounded-full bg-red-400 [animation-delay:100ms] h-10" />
+                  <span className="w-2 animate-bounce rounded-full bg-red-500 [animation-delay:200ms] h-14" />
+                  <span className="w-2 animate-bounce rounded-full bg-red-400 [animation-delay:300ms] h-8" />
+                  <span className="w-2 animate-bounce rounded-full bg-red-500 [animation-delay:150ms] h-12" />
+                </div>
+
+                <div className="max-w-sm space-y-3 text-center">
+                  <p className="text-xl font-black tracking-[0.2em] text-white sm:text-2xl">
+                    SILENT OVERWATCH ARMED
+                  </p>
+                  <p className="min-h-[2.5rem] font-mono text-sm leading-relaxed text-zinc-300 transition-opacity">
+                    {LOADING_STATUSES[loadingStatusIndex]}
+                  </p>
+                  <p className="text-[10px] uppercase tracking-[0.25em] text-zinc-600">
+                    Audio · Visual · GPS · ICE Profile
+                  </p>
+                </div>
               </div>
             )}
 
             {uiState === "fire" && (
-              <div className="flex h-full w-full items-center justify-center bg-orange-600 px-8 text-center">
+              <div className="relative flex h-full w-full items-center justify-center bg-orange-600 px-8 text-center">
+                <LiveTelemetryBadge />
                 <p className="text-2xl font-bold leading-tight tracking-wide text-white sm:text-4xl">
                   ENVIRONMENTAL HAZARD DETECTED. PROCEED TO EXITS.
                 </p>
@@ -341,7 +531,8 @@ function SosPageContent() {
             )}
 
             {uiState === "medical" && (
-              <div className="flex h-full w-full flex-col items-center justify-center gap-10 bg-blue-600 px-8 text-center">
+              <div className="relative flex h-full w-full flex-col items-center justify-center gap-10 bg-blue-600 px-8 text-center">
+                <LiveTelemetryBadge />
                 <div
                   className="h-48 w-48 animate-pulse rounded-full bg-blue-300/40 ring-8 ring-white/30 sm:h-64 sm:w-64"
                   aria-hidden
@@ -353,7 +544,8 @@ function SosPageContent() {
             )}
 
             {uiState === "threat" && (
-              <div className="flex h-full w-full items-center justify-center bg-black px-8 text-center">
+              <div className="relative flex h-full w-full items-center justify-center bg-black px-8 text-center">
+                <LiveTelemetryBadge tone="dark" />
                 <p className="text-sm font-medium tracking-wide text-zinc-500 sm:text-base">
                   THREAT DETECTED. SCREEN DARKENED FOR SAFETY. SOS SENT.
                 </p>
@@ -460,6 +652,7 @@ function SosPageContent() {
         <button
           type="button"
           onClick={() => {
+            ensureSessionForSim();
             setActiveTab("sos");
             setUiState("fire");
           }}
@@ -470,6 +663,7 @@ function SosPageContent() {
         <button
           type="button"
           onClick={() => {
+            ensureSessionForSim();
             setActiveTab("sos");
             setUiState("medical");
           }}
@@ -480,6 +674,7 @@ function SosPageContent() {
         <button
           type="button"
           onClick={() => {
+            ensureSessionForSim();
             setActiveTab("sos");
             setUiState("threat");
           }}
@@ -490,6 +685,7 @@ function SosPageContent() {
         <button
           type="button"
           onClick={() => {
+            clearTelemetryInterval();
             setActiveTab("sos");
             setUiState("low-bandwidth");
           }}
@@ -499,10 +695,7 @@ function SosPageContent() {
         </button>
         <button
           type="button"
-          onClick={() => {
-            setActiveTab("sos");
-            setUiState("idle");
-          }}
+          onClick={resetSession}
           className="rounded px-2 py-1 text-xs text-white opacity-30 hover:opacity-70"
         >
           [Reset]
