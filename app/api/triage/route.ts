@@ -1,5 +1,6 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextResponse } from "next/server";
+import { iceFromPhone } from "@/lib/iceFromPhone";
 import { connectToDatabase } from "@/lib/mongodb";
 import { IceProfile } from "@/models/IceProfile";
 import {
@@ -7,16 +8,7 @@ import {
   CRISIS_TYPES,
   type CrisisType,
 } from "@/models/Incident";
-
-type TriageRequestBody = {
-  userId?: string;
-  gps?: {
-    lat?: number;
-    lng?: number;
-  };
-  imageBase64?: string;
-  audioBase64?: string;
-};
+import type { IceProfile as IceProfileShape, TriageRequest } from "@/types/incident";
 
 type GrokTriageResult = {
   severityScore: number;
@@ -48,9 +40,7 @@ function parseDataUri(input: string): { mimeType: string; data: string } {
 
 function sanitizeCrisisType(raw: string): PerceptionCrisisType {
   const normalized = raw.trim().toUpperCase();
-  if (
-    (PERCEPTION_TYPES as readonly string[]).includes(normalized)
-  ) {
+  if ((PERCEPTION_TYPES as readonly string[]).includes(normalized)) {
     return normalized as PerceptionCrisisType;
   }
   return "ACTIVE_THREAT";
@@ -60,6 +50,70 @@ function clampSeverity(score: unknown): number {
   const n = typeof score === "number" ? score : Number(score);
   if (!Number.isFinite(n)) return 8;
   return Math.min(10, Math.max(1, Math.round(n)));
+}
+
+function summarizeIce(profile: IceProfileShape | null): string {
+  if (!profile) return "No ICE medical profile on file";
+  return [
+    `Name: ${profile.name ?? "unknown"}`,
+    profile.age !== undefined ? `Age: ${profile.age}` : null,
+    `Blood type: ${profile.bloodType ?? "unknown"}`,
+    `Allergies: ${(profile.allergies ?? []).join(", ") || "none"}`,
+    `Conditions: ${(profile.conditions ?? []).join(", ") || "none"}`,
+    `Medications: ${(profile.medications ?? []).join(", ") || "none"}`,
+    `Mobility notes: ${profile.mobilityNotes ?? "none"}`,
+    `Sensory notes: ${profile.sensoryNotes ?? "none"}`,
+    profile.emergencyContact
+      ? `Emergency contact: ${profile.emergencyContact.name ?? "n/a"} ${profile.emergencyContact.phone ?? ""}`.trim()
+      : null,
+  ]
+    .filter(Boolean)
+    .join("; ");
+}
+
+function leanToIceShape(
+  doc: {
+    name?: string | null;
+    age?: number | null;
+    bloodType?: string | null;
+    allergies?: string[] | null;
+    conditions?: string[] | null;
+    medications?: string[] | null;
+    emergencyContact?: {
+      name?: string | null;
+      phone?: string | null;
+      relation?: string | null;
+    } | null;
+    mobilityNotes?: string | null;
+    sensoryNotes?: string | null;
+  } | null,
+): IceProfileShape | null {
+  if (!doc) return null;
+  return {
+    ...(doc.name ? { name: doc.name } : {}),
+    ...(typeof doc.age === "number" ? { age: doc.age } : {}),
+    ...(doc.bloodType ? { bloodType: doc.bloodType } : {}),
+    allergies: doc.allergies ?? [],
+    conditions: doc.conditions ?? [],
+    medications: doc.medications ?? [],
+    ...(doc.mobilityNotes ? { mobilityNotes: doc.mobilityNotes } : {}),
+    ...(doc.sensoryNotes ? { sensoryNotes: doc.sensoryNotes } : {}),
+    ...(doc.emergencyContact
+      ? {
+          emergencyContact: {
+            ...(doc.emergencyContact.name
+              ? { name: doc.emergencyContact.name }
+              : {}),
+            ...(doc.emergencyContact.phone
+              ? { phone: doc.emergencyContact.phone }
+              : {}),
+            ...(doc.emergencyContact.relation
+              ? { relation: doc.emergencyContact.relation }
+              : {}),
+          },
+        }
+      : {}),
+  };
 }
 
 async function classifyWithGemini(
@@ -123,12 +177,7 @@ async function gradeWithGrok(input: {
   isLowBandwidth: boolean;
   gps: { lat: number; lng: number };
   iceSummary: string;
-  iceProfile: {
-    bloodType?: string;
-    allergies: string[];
-    conditions: string[];
-    medications: string[];
-  } | null;
+  iceProfile: IceProfileShape | null;
 }): Promise<GrokTriageResult> {
   const fallback: GrokTriageResult = {
     severityScore: 8,
@@ -148,6 +197,9 @@ async function gradeWithGrok(input: {
       "dispatcherBrief must be exactly 2 concise, high-signal sentences for an emergency dispatcher.",
       "Elevate severityScore when medical conditions/allergies conflict with the crisis,",
       "or when LOW_BANDWIDTH_SOS is triggered for a high-risk patient.",
+      "Factor mobilityNotes and sensoryNotes into the brief and severity:",
+      "e.g. a deaf user cannot hear responders calling out; a wheelchair user cannot use stairs.",
+      "If sensoryNotes or mobilityNotes are present, at least one sentence must call out that operational constraint.",
     ].join(" ");
 
     const userPayload = {
@@ -214,8 +266,9 @@ async function gradeWithGrok(input: {
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as TriageRequestBody;
-    const { userId, gps, imageBase64, audioBase64 } = body;
+    const body = (await request.json()) as TriageRequest;
+    // Ignore duplicate phone fields `image` / `audio` if present — only these.
+    const { userId, gps, imageBase64, audioBase64, iceProfile: phoneIce } = body;
 
     if (
       !userId ||
@@ -236,15 +289,61 @@ export async function POST(request: Request) {
 
     await connectToDatabase();
 
-    const profile = await IceProfile.findOne({ userId }).lean();
-    const iceSummary = profile
-      ? [
-          `Blood type: ${profile.bloodType ?? "unknown"}`,
-          `Allergies: ${(profile.allergies ?? []).join(", ") || "none"}`,
-          `Conditions: ${(profile.conditions ?? []).join(", ") || "none"}`,
-          `Medications: ${(profile.medications ?? []).join(", ") || "none"}`,
-        ].join("; ")
-      : "No ICE medical profile on file";
+    const existing = await IceProfile.findOne({ userId }).lean();
+    const fromPhone = iceFromPhone(phoneIce);
+
+    let profileForTriage: IceProfileShape | null = leanToIceShape(existing);
+
+    if (fromPhone) {
+      const merged: IceProfileShape = {
+        name: fromPhone.name ?? existing?.name ?? undefined,
+        age: fromPhone.age ?? existing?.age ?? undefined,
+        bloodType: fromPhone.bloodType ?? existing?.bloodType ?? undefined,
+        // Phone fields overwrite lists when a real phone profile was provided.
+        conditions: fromPhone.conditions,
+        allergies: fromPhone.allergies,
+        // Phone form has no medications — preserve whatever Mongo already has.
+        medications: existing?.medications ?? [],
+        mobilityNotes:
+          fromPhone.mobilityNotes ?? existing?.mobilityNotes ?? undefined,
+        sensoryNotes:
+          fromPhone.sensoryNotes ?? existing?.sensoryNotes ?? undefined,
+        emergencyContact:
+          fromPhone.emergencyContact ??
+          leanToIceShape(existing)?.emergencyContact,
+      };
+
+      const upserted = await IceProfile.findOneAndUpdate(
+        { userId },
+        {
+          $set: {
+            userId,
+            ...(merged.name !== undefined ? { name: merged.name } : {}),
+            ...(merged.age !== undefined ? { age: merged.age } : {}),
+            ...(merged.bloodType !== undefined
+              ? { bloodType: merged.bloodType }
+              : {}),
+            conditions: merged.conditions,
+            allergies: merged.allergies,
+            medications: merged.medications ?? [],
+            ...(merged.mobilityNotes !== undefined
+              ? { mobilityNotes: merged.mobilityNotes }
+              : {}),
+            ...(merged.sensoryNotes !== undefined
+              ? { sensoryNotes: merged.sensoryNotes }
+              : {}),
+            ...(merged.emergencyContact
+              ? { emergencyContact: merged.emergencyContact }
+              : {}),
+          },
+        },
+        { upsert: true, new: true, setDefaultsOnInsert: true },
+      ).lean();
+
+      profileForTriage = leanToIceShape(upserted);
+    }
+
+    const iceSummary = summarizeIce(profileForTriage);
 
     const hasMedia =
       isNonEmptyMedia(imageBase64) || isNonEmptyMedia(audioBase64);
@@ -266,14 +365,7 @@ export async function POST(request: Request) {
       isLowBandwidth,
       gps: { lat: gps.lat, lng: gps.lng },
       iceSummary,
-      iceProfile: profile
-        ? {
-            bloodType: profile.bloodType ?? undefined,
-            allergies: profile.allergies ?? [],
-            conditions: profile.conditions ?? [],
-            medications: profile.medications ?? [],
-          }
-        : null,
+      iceProfile: profileForTriage,
     });
 
     const incident = await ActiveIncident.create({
@@ -283,6 +375,7 @@ export async function POST(request: Request) {
       dispatcherBrief,
       gps: { lat: gps.lat, lng: gps.lng },
       isLowBandwidth,
+      iceProfile: profileForTriage,
     });
 
     return NextResponse.json(
@@ -292,6 +385,7 @@ export async function POST(request: Request) {
         severityScore,
         dispatcherBrief,
         isLowBandwidth,
+        iceProfile: incident.iceProfile ?? profileForTriage,
       },
       { status: 200 },
     );

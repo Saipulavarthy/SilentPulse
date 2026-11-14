@@ -25,6 +25,25 @@ const GpsSchema = new Schema(
   { _id: false },
 );
 
+const IncidentIceSnapshotSchema = new Schema(
+  {
+    name: { type: String },
+    age: { type: Number },
+    bloodType: { type: String },
+    allergies: { type: [String], default: [] },
+    conditions: { type: [String], default: [] },
+    medications: { type: [String], default: [] },
+    emergencyContact: {
+      name: { type: String },
+      phone: { type: String },
+      relation: { type: String },
+    },
+    mobilityNotes: { type: String },
+    sensoryNotes: { type: String },
+  },
+  { _id: false },
+);
+
 const ActiveIncidentSchema = new Schema(
   {
     userId: { type: String, required: true, index: true },
@@ -42,6 +61,8 @@ const ActiveIncidentSchema = new Schema(
     dispatcherBrief: { type: String, required: true },
     gps: { type: GpsSchema, required: true },
     isLowBandwidth: { type: Boolean, default: false },
+    /** ICE snapshot used for this SOS (phone and/or Mongo merge). */
+    iceProfile: { type: IncidentIceSnapshotSchema, default: null },
     status: {
       type: String,
       enum: INCIDENT_STATUSES,
