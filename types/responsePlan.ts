@@ -94,7 +94,10 @@ export type PlanBuilding = {
   notes?: string;
 };
 
-/** Another open incident in the same building, as the plan sees it. */
+/** GPS uncertainty → building match quality for the plan. */
+export type PlanLocationConfidence = 'single' | 'multiple' | 'none' | 'confirmed';
+
+/** Another open incident whose accuracy range overlaps these buildings. */
 export type OtherCaller = {
   crisisType: CrisisType;
   severityScore: number;
@@ -106,7 +109,14 @@ export type OtherCaller = {
 /** POST /api/response-plan body. */
 export type PlanRequest = {
   incident: PlanIncident;
+  /**
+   * Primary building for notes (single or confirmed only). Null when outdoors or
+   * multiple candidates — use buildingsInRange instead.
+   */
   building: PlanBuilding | null;
+  /** Every campus building intersecting the GPS uncertainty circle, best overlap first. */
+  buildingsInRange?: PlanBuilding[];
+  locationConfidence?: PlanLocationConfidence;
   otherCallers: OtherCaller[];
 };
 

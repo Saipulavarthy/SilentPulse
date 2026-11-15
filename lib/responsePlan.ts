@@ -9,9 +9,26 @@ import {
   type PlanBuilding,
   type PlanIncident,
   type PlanItem,
+  type PlanLocationConfidence,
   type PlanSource,
   type ResponsePlan,
 } from '@/types/responsePlan';
+
+/** Spoken location for the radio brief from buildings in range. */
+export function radioLocationPhrase(
+  buildings: PlanBuilding[],
+  confidence: PlanLocationConfidence | undefined,
+): string {
+  if (confidence === 'confirmed' && buildings[0]) return buildings[0].name;
+  if (confidence === 'single' && buildings[0]) return buildings[0].name;
+  if (buildings.length === 0 || confidence === 'none') return 'an outdoor or unknown location';
+  if (buildings.length === 1) return buildings[0].name;
+  if (buildings.length === 2) return `${buildings[0].name} or the ${buildings[1].name}`;
+  if (buildings.length === 3) {
+    return `${buildings[0].name}, ${buildings[1].name}, or the ${buildings[2].name}`;
+  }
+  return `the area around ${buildings[0].name}`;
+}
 
 export const MAX_WORDS = 20;
 export const MAX_RISKS = 3;
@@ -170,13 +187,32 @@ function timelineFacts(incident: PlanIncident, now: number) {
  * The facts the model sees, grouped by the source names plan items must cite. Deliberately
  * minimal: no names, phone numbers, user id or exact coordinates.
  */
-export function planFacts(incident: PlanIncident, building: PlanBuilding | null, otherCallers: OtherCaller[], now = Date.now()) {
+export type PlanFactsOpts = {
+  buildingsInRange?: PlanBuilding[];
+  locationConfidence?: PlanLocationConfidence;
+};
+
+export function planFacts(
+  incident: PlanIncident,
+  building: PlanBuilding | null,
+  otherCallers: OtherCaller[],
+  now = Date.now(),
+  opts: PlanFactsOpts = {},
+) {
   // Only present when it applies: mentioning verification otherwise primes the model to hedge.
   const sceneStatus = incident.lowBandwidth
     ? 'unverified: no image or audio was received'
     : incident.classificationFailed
       ? 'unverified: image/audio could not be classified'
       : undefined;
+  const confidence = opts.locationConfidence;
+  const inRange = opts.buildingsInRange ?? (building ? [building] : []);
+  // Building notes only when a single building is known or the dispatcher confirmed one.
+  const notesBuilding =
+    confidence === 'confirmed' || confidence === 'single' || (confidence === undefined && building)
+      ? building
+      : null;
+  const multi = confidence === 'multiple' || (confidence === undefined && inRange.length > 1);
   return prune({
     crisisType: incident.crisisType,
     severityScore: incident.severityScore,
@@ -186,11 +222,17 @@ export function planFacts(incident: PlanIncident, building: PlanBuilding | null,
     callerDevice: isStealth(incident)
       ? 'stealth mode: silent on-screen dispatcher messages only; do not call, ring, vibrate or flash the phone'
       : undefined,
-    building: building ? prune({ name: building.name, type: building.type, floors: building.floors }) : undefined,
-    callersInBuilding: building ? 1 + otherCallers.length : undefined,
+    building: notesBuilding
+      ? prune({ name: notesBuilding.name, type: notesBuilding.type, floors: notesBuilding.floors })
+      : undefined,
+    buildingsInRange: inRange.length ? inRange.map((b) => b.name) : undefined,
+    locationConfidence: confidence,
+    locationPhrase: radioLocationPhrase(inRange, confidence),
+    callersOverlappingBuildings: inRange.length ? 1 + otherCallers.length : undefined,
+    callersInBuilding: notesBuilding ? 1 + otherCallers.length : undefined,
     gpsAccuracyMetres: incident.gps?.accuracy,
     // ---- sources ----
-    buildingNotes: building?.notes,
+    buildingNotes: notesBuilding?.notes,
     callerProfile: callerProfile(incident),
     perception: prune({
       sceneSummary: incident.sceneSummary,
@@ -207,8 +249,10 @@ export function planFacts(incident: PlanIncident, building: PlanBuilding | null,
           severityScore: o.severityScore,
           minutesAgo: minutesSince(o.createdAt, now),
           summary: o.summary,
+          note: multi ? 'range overlaps these buildings' : undefined,
         }))
       : undefined,
+    mustAskBuilding: multi ? 'which of the buildings in range the caller is in' : undefined,
   });
 }
 
@@ -222,15 +266,29 @@ export function availableSources(facts: ReturnType<typeof planFacts>): Set<PlanS
  * One line on everything open in the building plus this incident's timeline: callers, minutes
  * since first alert, trend, signal loss. Undefined with one caller and one update.
  */
-export function situationLine(incident: PlanIncident, building: PlanBuilding | null, otherCallers: OtherCaller[], now = Date.now()) {
+export function situationLine(
+  incident: PlanIncident,
+  building: PlanBuilding | null,
+  otherCallers: OtherCaller[],
+  now = Date.now(),
+  opts: PlanFactsOpts = {},
+) {
   const tl = incident.timeline ?? [];
   const updates = Math.max(tl.length, incident.updateCount ?? 0, 1);
   const callers = 1 + otherCallers.length;
   if (callers === 1 && updates <= 1 && !incident.escalated) return undefined;
 
   const firstAlert = [tl[0]?.ts ?? incident.createdAt, ...otherCallers.map((o) => o.createdAt)].sort()[0];
+  const inRange = opts.buildingsInRange ?? (building ? [building] : []);
+  const multi = opts.locationConfidence === 'multiple' || inRange.length > 1;
+  const where =
+    callers > 1
+      ? multi && inRange.length
+        ? `${callers} callers whose range overlaps ${inRange.length === 1 ? inRange[0].name : 'these buildings'}`
+        : `${callers} callers${building ? ` in ${building.name}` : ''}`
+      : undefined;
   const parts = [
-    callers > 1 ? `${callers} callers${building ? ` in ${building.name}` : ''}` : undefined,
+    where,
     `first alert ${minutesSince(firstAlert, now)} min ago`,
     updates > 1 ? `${updates} updates${tl.length > 1 ? ` (severity ${tl.map((t) => t.severityScore).join('→')})` : ''}` : undefined,
     incident.trend && incident.trend !== 'new' ? incident.trend : undefined,
@@ -359,10 +417,17 @@ const TYPE_WORDS: Record<PlanIncident['crisisType'], string> = {
  * Templated plan from facts already in the incident (no AI): a radio brief and the situation
  * line. The panel shows it with the tier's recommended response, labelled rule-based.
  */
-export function ruleBasedPlan(incident: PlanIncident, building: PlanBuilding | null, otherCallers: OtherCaller[]): ResponsePlan {
+export function ruleBasedPlan(
+  incident: PlanIncident,
+  building: PlanBuilding | null,
+  otherCallers: OtherCaller[],
+  opts: PlanFactsOpts = {},
+): ResponsePlan {
   const callers = 1 + otherCallers.length;
   const unverified = incident.lowBandwidth || incident.classificationFailed;
-  const first = `${TYPE_WORDS[incident.crisisType]} at ${building?.name ?? 'an unknown location'}, severity ${incident.severityScore}${
+  const inRange = opts.buildingsInRange ?? (building ? [building] : []);
+  const where = radioLocationPhrase(inRange, opts.locationConfidence);
+  const first = `${TYPE_WORDS[incident.crisisType]} at ${where}, severity ${incident.severityScore}${
     callers > 1 ? `, ${callers} callers` : ''
   }.`;
   const second = isStealth(incident)
@@ -372,11 +437,15 @@ export function ruleBasedPlan(incident: PlanIncident, building: PlanBuilding | n
       : incident.escalated
         ? 'Signal lost from the caller.'
         : '';
+  const unknowns =
+    opts.locationConfidence === 'multiple' || inRange.length > 1
+      ? ['Which building in range is the caller in?']
+      : [];
   return {
     radioBrief: [first, second].filter(Boolean).join(' '),
-    situation: situationLine(incident, building, otherCallers),
+    situation: situationLine(incident, building, otherCallers, Date.now(), opts),
     risks: [],
     actions: [],
-    unknowns: [],
+    unknowns,
   };
 }

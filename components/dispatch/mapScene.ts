@@ -163,6 +163,51 @@ export function buildingOf(polygons: TilePolygon[], seed: TilePolygon): { outlin
  * No containing polygon → null; never the nearest building. Incidents whose point is not
  * currently in view keep their previous result, since their tiles may simply not be loaded.
  */
+/**
+ * Tile footprint under a lat/lng, or null if none of the loaded tiles contain the point.
+ * Used to colour named campus buildings that fall inside a GPS uncertainty circle.
+ */
+export function footprintAtPoint(
+  polygons: TilePolygon[],
+  lng: number,
+  lat: number,
+): Footprint | null {
+  const p: [number, number] = [lng, lat];
+  const containing = polygons.filter((t) => bboxHas(t.bbox, p) && inPolygon(p, t.polygon));
+  if (containing.length === 0) return null;
+  const visible = containing.filter((t) => !t.hidden);
+  const roofHeight = Math.max(0, ...visible.map((t) => t.height), 0);
+  const seed =
+    containing.filter((t) => t.hidden).sort((a, b) => b.area - a.area)[0] ??
+    visible.sort((a, b) => b.height - a.height || b.area - a.area)[0];
+  if (!seed) return null;
+  const { outline, parts } = buildingOf(polygons, seed);
+  return {
+    key: buildingKey(outline),
+    outline,
+    parts: parts.map(({ polygon, height, base }) => ({ polygon, height, base })),
+    roofHeight,
+  };
+}
+
+/**
+ * Synthetic extrusion from an OSM outline when tiles have not loaded that building yet.
+ * Height ≈ levels × 3.5 m (campus default).
+ */
+export function footprintFromOutline(
+  key: string,
+  outline: PolygonCoords,
+  levels: number | null,
+): Footprint {
+  const height = Math.max(3.5, (levels && levels > 0 ? levels : 2) * 3.5);
+  return {
+    key,
+    outline,
+    parts: [{ polygon: outline, height, base: 0 }],
+    roofHeight: height,
+  };
+}
+
 export function findFootprints(
   polygons: TilePolygon[],
   incidents: MappedIncident[],
@@ -173,25 +218,12 @@ export function findFootprints(
 
   for (const i of incidents) {
     const p: [number, number] = [i.gps.lng, i.gps.lat];
-    const containing = polygons.filter((t) => bboxHas(t.bbox, p) && inPolygon(p, t.polygon));
-    if (containing.length === 0) {
+    const found = footprintAtPoint(polygons, p[0], p[1]);
+    if (!found) {
       result.set(i._id, isInView(p[0], p[1]) ? null : (previous.get(i._id) ?? null));
       continue;
     }
-
-    const visible = containing.filter((t) => !t.hidden);
-    const roofHeight = Math.max(0, ...visible.map((t) => t.height));
-    const seed =
-      containing.filter((t) => t.hidden).sort((a, b) => b.area - a.area)[0] ??
-      visible.sort((a, b) => b.height - a.height || b.area - a.area)[0];
-    const { outline, parts } = buildingOf(polygons, seed);
-
-    result.set(i._id, {
-      key: buildingKey(outline),
-      outline,
-      parts: parts.map(({ polygon, height, base }) => ({ polygon, height, base })),
-      roofHeight,
-    });
+    result.set(i._id, found);
   }
   return result;
 }

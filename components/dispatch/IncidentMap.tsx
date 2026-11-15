@@ -11,15 +11,15 @@ import {
   type JumpToOptions,
 } from 'maplibre-gl';
 import { useEffect, useEffectEvent, useRef, useState } from 'react';
-import { nameForFootprint } from '@/lib/landmarks';
+import { LANDMARKS, nameForFootprint } from '@/lib/landmarks';
 import type { Incident } from '@/types/incident';
 import type { MapPanelProps } from './MapPanel';
 import {
   buildingKey,
   buildingOf,
   circlePolygon,
-  findFootprints,
-  groupIncidents,
+  footprintAtPoint,
+  footprintFromOutline,
   inflate,
   inPolygon,
   isDrawn,
@@ -37,6 +37,7 @@ import { CRISIS_ICON_LABEL, crisisIconSvg } from './crisisIcons';
 import { TIER_STYLES, incidentNumber, tierStyle, typeLabel } from './severity';
 import { severityTier } from '@/types/incident';
 import { MONO } from './ui';
+import { formatAccuracy } from './locationEstimate';
 
 // MapLibre locates its worker next to its own module, which bundling breaks.
 // Let the bundler emit the (self-contained) worker file and point MapLibre at it.
@@ -95,17 +96,31 @@ const MAP_CHROME = [
 type Badge = { group: SceneGroup; el: HTMLElement };
 type Hover = { key: string; incidents: Incident[] };
 
-export default function IncidentMap({ incidents, selectedId, onSelect, fullscreen = false, onToggleFullscreen }: MapPanelProps) {
+type HighlightState = 'ack' | 'open' | 'selected' | 'ack-dim' | 'open-dim' | 'selected-dim';
+
+export default function IncidentMap({
+  incidents,
+  selectedId,
+  onSelect,
+  fullscreen = false,
+  onToggleFullscreen,
+  locations,
+  focus,
+}: MapPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const footprintsRef = useRef(new Map<string, Footprint | null>());
+  /** Footprint keyed by building osmId for multi-building highlights. */
+  const buildingFootprintsRef = useRef(new Map<string, Footprint>());
+  const locationsRef = useRef(locations);
   const polygonsRef = useRef<TilePolygon[]>([]);
   const hoverRef = useRef<Hover | null>(null);
   const badgesRef = useRef<Badge[]>([]);
   const matrixRef = useRef<ArrayLike<number> | null>(null);
   const lastFlownRef = useRef<string | null>(null);
+  const lastFocusTokenRef = useRef<number | null>(null);
   const [ready, setReady] = useState(false);
   // Overview frames incidents on campus only, so one far-off GPS fix can't zoom the map out.
   const [initialDrawn] = useState(() => incidents.filter(isDrawn).filter(onCampus));
@@ -152,53 +167,121 @@ export default function IncidentMap({ incidents, selectedId, onSelect, fullscree
     const overlay = overlayRef.current;
     if (!map || !overlay) return;
     const drawn = incidents.filter(isDrawn);
-    const groups = groupIncidents(drawn, footprintsRef.current);
+    const locs = locationsRef.current;
+    const buildingFp = buildingFootprintsRef.current;
+
+    // Merge overlapping incidents onto shared buildings: colour = highest severity.
+    type Agg = {
+      footprint: Footprint;
+      name: string;
+      osmId: string;
+      incidents: MappedIncident[];
+      primaryRank: boolean;
+    };
+    const byOsm = new Map<string, Agg>();
+    for (const incident of drawn) {
+      const loc = locs?.get(incident._id);
+      const shown = loc?.shown ?? [];
+      for (let rank = 0; rank < shown.length; rank++) {
+        const b = shown[rank];
+        const fp = buildingFp.get(b.osmId);
+        if (!fp) continue;
+        const prev = byOsm.get(b.osmId);
+        if (!prev) {
+          byOsm.set(b.osmId, {
+            footprint: fp,
+            name: b.name,
+            osmId: b.osmId,
+            incidents: [incident],
+            primaryRank: rank === 0 || loc?.confidence === 'confirmed' || loc?.confidence === 'single',
+          });
+        } else {
+          prev.incidents.push(incident);
+          if (rank === 0 || loc?.confidence === 'confirmed' || loc?.confidence === 'single') prev.primaryRank = true;
+        }
+      }
+    }
+    for (const agg of byOsm.values()) {
+      agg.incidents.sort((a, b) => b.severityScore - a.severityScore);
+    }
 
     map.getSource<GeoJSONSource>(INCIDENT_BUILDINGS_SOURCE)?.setData({
       type: 'FeatureCollection',
-      features: groups.flatMap((g): GeoJSON.Feature[] => {
-        if (!g.footprint) return [];
-        const state = g.incidents.some((i) => i._id === selectedId)
+      features: [...byOsm.values()].flatMap((agg): GeoJSON.Feature[] => {
+        const primary = agg.incidents[0];
+        const baseState = agg.incidents.some((i) => i._id === selectedId)
           ? 'selected'
-          : g.incidents.some((i) => i.status === 'ACTIVE')
+          : agg.incidents.some((i) => i.status === 'ACTIVE')
             ? 'open'
             : 'ack';
-        const tier = severityTier(g.incidents[0].severityScore);
-        // Brighter than the legend colour, with flat lighting below: reads as lit from within.
+        const state: HighlightState = agg.primaryRank ? baseState : (`${baseState}-dim` as HighlightState);
+        const tier = severityTier(primary.severityScore);
         const color = lighten(TIER_STYLES[tier].hex, 0.18);
         const ringTier = tier === 'lethal' ? 'lethal' : 'other';
+        const tipIds = agg.incidents.map((i) => i._id).join(',');
         return [
-          // Slightly inflated so the coloured shell doesn't z-fight with the slate building.
-          ...g.footprint.parts.map((part) => ({
+          ...agg.footprint.parts.map((part) => ({
             type: 'Feature' as const,
-            properties: { kind: 'part', state, color, height: part.height + 0.6, base: part.base },
+            properties: {
+              kind: 'part',
+              state,
+              color,
+              height: part.height + 0.6,
+              base: part.base,
+              name: agg.name,
+              tipIds,
+            },
             geometry: { type: 'Polygon' as const, coordinates: inflate(part.polygon, 0.6) },
           })),
           {
             type: 'Feature' as const,
-            properties: { kind: 'outline', state, color },
-            geometry: { type: 'Polygon' as const, coordinates: inflate(g.footprint.outline, 0.8) },
+            properties: { kind: 'outline', state, color, name: agg.name, tipIds },
+            geometry: { type: 'Polygon' as const, coordinates: inflate(agg.footprint.outline, 0.8) },
           },
-          // Pulsing ring on the ground around the base.
-          {
-            type: 'Feature' as const,
-            properties: { kind: 'ring', state, color, ring: ringTier },
-            geometry: { type: 'Polygon' as const, coordinates: inflate(g.footprint.outline, 5) },
-          },
+          ...(agg.primaryRank
+            ? [
+                {
+                  type: 'Feature' as const,
+                  properties: { kind: 'ring', state, color, ring: ringTier, name: agg.name, tipIds },
+                  geometry: { type: 'Polygon' as const, coordinates: inflate(agg.footprint.outline, 5) },
+                },
+              ]
+            : []),
         ];
       }),
     });
 
+    // Always draw the estimate accuracy circle (assumed ±30 m when device omitted it).
     map.getSource<GeoJSONSource>(ACCURACY_SOURCE)?.setData({
       type: 'FeatureCollection',
-      features: drawn
-        .filter((i) => i.gps.accuracy !== undefined && i.gps.accuracy > 0)
-        .map((i) => circlePolygon(i.gps.lng, i.gps.lat, i.gps.accuracy!)),
+      features: drawn.flatMap((i) => {
+        const est = locs?.get(i._id)?.estimate;
+        if (est) return [circlePolygon(est.lng, est.lat, est.radiusM)];
+        if (i.gps.accuracy !== undefined && i.gps.accuracy > 0) return [circlePolygon(i.gps.lng, i.gps.lat, i.gps.accuracy)];
+        return [circlePolygon(i.gps.lng, i.gps.lat, 30)];
+      }),
+    });
+
+    // One badge per incident, floating above the top-ranked building (or the estimate centre).
+    const badgeGroups: SceneGroup[] = drawn.map((incident) => {
+      const loc = locs?.get(incident._id);
+      const top = loc?.shown[0];
+      const fp = top ? buildingFp.get(top.osmId) ?? null : null;
+      const more = loc?.moreCount ?? 0;
+      return {
+        key: incident._id,
+        incidents: [incident],
+        footprint: fp,
+        lng: top?.lng ?? loc?.estimate?.lng ?? incident.gps.lng,
+        lat: top?.lat ?? loc?.estimate?.lat ?? incident.gps.lat,
+        altitude: fp?.roofHeight ?? 0,
+        moreInRange: more,
+      };
     });
 
     overlay.replaceChildren();
-    badgesRef.current = groups.map((group) => {
-      const el = createBadge(group, selectedId, onSelect);
+    badgesRef.current = badgeGroups.map((group) => {
+      const el = createBadge(group, selectedId, onSelect, (group as SceneGroup & { moreInRange?: number }).moreInRange ?? 0);
       overlay.appendChild(el);
       return { group, el };
     });
@@ -206,19 +289,66 @@ export default function IncidentMap({ incidents, selectedId, onSelect, fullscree
     map.triggerRepaint();
   });
 
-  /** Finds each incident's footprint in the loaded tiles; re-renders only if something changed. */
+  /**
+   * Resolves a tile (or synthetic) footprint for every building in range of each incident.
+   * Re-runs when tiles finish loading after a camera move.
+   */
   const lookupFootprints = useEffectEvent(() => {
     const map = mapRef.current;
     if (!map) return;
     const polygons = tilePolygons(map.querySourceFeatures(VECTOR_SOURCE, { sourceLayer: 'building' }) as BuildingFeature[]);
     polygonsRef.current = polygons;
-    const view = map.getBounds();
-    const isInView = (lng: number, lat: number) => map.getZoom() >= 13 && view.contains([lng, lat]);
-    const next = findFootprints(polygons, incidents.filter(isDrawn), isInView, footprintsRef.current);
-    const signature = (m: Map<string, Footprint | null>) =>
-      [...m].map(([id, f]) => `${id}=${f ? `${f.key}@${f.roofHeight}/${f.parts.length}` : '-'}`).sort().join('|');
-    if (signature(next) === signature(footprintsRef.current)) return;
-    footprintsRef.current = next;
+    const locs = locationsRef.current;
+    const drawn = incidents.filter(isDrawn);
+    const nextBuilding = new Map<string, Footprint>();
+    const nextIncident = new Map<string, Footprint | null>();
+
+    const resolveLandmark = (osmId: string): Footprint | null => {
+      const landmark = LANDMARKS.find((l) => l.osmId === osmId);
+      if (!landmark) return null;
+      const cached = buildingFootprintsRef.current.get(osmId);
+      let found = footprintAtPoint(polygons, landmark.lng, landmark.lat);
+      if (!found) {
+        outer: for (const poly of landmark.polygons) {
+          for (const [lng, lat] of poly[0]) {
+            found = footprintAtPoint(polygons, lng, lat);
+            if (found) break outer;
+          }
+        }
+      }
+      if (found) return found;
+      if (cached) return cached;
+      const outline = landmark.polygons[0] as Footprint['outline'];
+      return footprintFromOutline(`osm:${osmId}`, outline, landmark.levels);
+    };
+
+    for (const incident of drawn) {
+      const loc = locs?.get(incident._id);
+      const shown = loc?.shown ?? [];
+      let topFp: Footprint | null = null;
+      for (const b of shown) {
+        const fp = resolveLandmark(b.osmId);
+        if (!fp) continue;
+        nextBuilding.set(b.osmId, fp);
+        if (!topFp) topFp = fp;
+      }
+      // Legacy single-point fallback when locations are not wired yet.
+      if (!topFp && !loc) {
+        topFp = footprintAtPoint(polygons, incident.gps.lng, incident.gps.lat);
+      }
+      nextIncident.set(incident._id, topFp);
+    }
+
+    const sig = (m: Map<string, Footprint | null | Footprint>) =>
+      [...m]
+        .map(([id, f]) => `${id}=${f ? `${f.key}@${f.roofHeight}/${f.parts.length}` : '-'}`)
+        .sort()
+        .join('|');
+    const sameBuildings = sig(nextBuilding) === sig(buildingFootprintsRef.current);
+    const sameIncidents = sig(nextIncident) === sig(footprintsRef.current);
+    if (sameBuildings && sameIncidents) return;
+    buildingFootprintsRef.current = nextBuilding;
+    footprintsRef.current = nextIncident;
     renderScene();
   });
 
@@ -265,23 +395,31 @@ export default function IncidentMap({ incidents, selectedId, onSelect, fullscree
 
     const { outline, parts } = buildingOf(polygonsRef.current, hovered);
     const key = buildingKey(outline);
-    const inside = incidents
-      .filter((i) => isDrawn(i) && inPolygon([i.gps.lng, i.gps.lat], outline))
-      .sort((a, b) => b.severityScore - a.severityScore);
-    canvas.style.cursor = inside.length > 0 ? 'pointer' : '';
-
-    // Name by where the cursor actually is on the building, tested against OSM outlines.
     const onSurface = surfacePoint(matrix, worldSize, w, h, point, hovered);
-    const name = onSurface ? nameForFootprint(onSurface, outline) : null;
+    const named = onSurface ? nameForFootprint(onSurface, outline) : null;
+
+    // Prefer incidents whose accuracy range covers this named building.
+    const rangeIncidents: MappedIncident[] = [];
+    if (named) {
+      for (const i of incidents.filter(isDrawn)) {
+        const loc = locationsRef.current?.get(i._id);
+        if (loc?.buildings.some((b) => b.name === named.name)) rangeIncidents.push(i);
+      }
+    }
+    const inside = (
+      rangeIncidents.length > 0
+        ? rangeIncidents
+        : incidents.filter((i) => isDrawn(i) && inPolygon([i.gps.lng, i.gps.lat], outline))
+    ).sort((a, b) => b.severityScore - a.severityScore);
+    canvas.style.cursor = inside.length > 0 ? 'pointer' : '';
 
     if (hoverRef.current?.key !== key) {
       map.getSource<GeoJSONSource>(HOVER_SOURCE)?.setData(
-        name
+        named
           ? {
               type: 'FeatureCollection',
               features: parts.map((part) => ({
                 type: 'Feature' as const,
-                // Satellite: a thin slab, so the highlight never becomes an extrusion.
                 properties: flat ? { height: 0.5, base: 0 } : { height: part.height + 1.2, base: part.base },
                 geometry: { type: 'Polygon' as const, coordinates: inflate(part.polygon, 1.2) },
               })),
@@ -291,19 +429,23 @@ export default function IncidentMap({ incidents, selectedId, onSelect, fullscree
     }
     hoverRef.current = { key, incidents: inside };
 
-    if (!name) {
+    if (!named) {
       tooltip.style.display = 'none';
       return;
     }
-    const line1 = name.levels ? `${name.name} · ${name.levels} floors` : name.name;
-    const open = inside.filter((i) => i.status === 'ACTIVE').length;
-    const ack = inside.length - open;
-    const line2 =
-      inside.length === 0
-        ? ''
-        : ack === 0
-          ? `${open} open incident${open === 1 ? '' : 's'}, highest ${inside[0].severityScore}`
-          : `${inside.length} incident${inside.length === 1 ? '' : 's'} (${ack} acknowledged), highest ${inside[0].severityScore}`;
+    const line1 = named.levels ? `${named.name} · ${named.levels} floors` : named.name;
+    let line2 = '';
+    if (inside.length > 0) {
+      const primary = inside[0];
+      const est = locationsRef.current?.get(primary._id)?.estimate;
+      const acc = est
+        ? formatAccuracy(est)
+        : primary.gps?.accuracy
+          ? `±${Math.round(primary.gps.accuracy)} m`
+          : '±30 m (assumed)';
+      line2 = `In range of ${incidentNumber(primary._id)} (${acc})`;
+      if (inside.length > 1) line2 += ` · +${inside.length - 1} more`;
+    }
     const [first, second] = tooltip.children as unknown as [HTMLElement, HTMLElement];
     first.textContent = line1;
     second.textContent = line2;
@@ -445,8 +587,12 @@ export default function IncidentMap({ incidents, selectedId, onSelect, fullscree
   }, []);
 
   useEffect(() => {
+    locationsRef.current = locations;
+  }, [locations]);
+
+  useEffect(() => {
     if (ready) lookupFootprints();
-  }, [ready, incidents]);
+  }, [ready, incidents, locations]);
 
   // Off-campus fixes must stay reachable: widen the pan limits to include them.
   const boundsKey = JSON.stringify(panBounds(incidents.filter(isDrawn)));
@@ -457,12 +603,13 @@ export default function IncidentMap({ incidents, selectedId, onSelect, fullscree
 
   useEffect(() => {
     if (ready) renderScene();
-  }, [ready, incidents, selectedId]);
+  }, [ready, incidents, selectedId, locations]);
 
   // Fly to the selected incident (not on first load, which keeps the overview).
   const selected = incidents.filter(isDrawn).find((i) => i._id === selectedId);
-  const lat = selected?.gps.lat;
-  const lng = selected?.gps.lng;
+  const selectedLoc = selectedId ? locations?.get(selectedId) : undefined;
+  const lat = selectedLoc?.estimate?.lat ?? selected?.gps.lat;
+  const lng = selectedLoc?.estimate?.lng ?? selected?.gps.lng;
   useEffect(() => {
     const map = mapRef.current;
     if (!ready || !map || !selectedId || lat === undefined || lng === undefined) return;
@@ -474,6 +621,21 @@ export default function IncidentMap({ incidents, selectedId, onSelect, fullscree
     lastFlownRef.current = selectedId;
     map.flyTo({ center: [lng, lat], zoom: SELECTED_ZOOM, pitch: modePitch(), bearing: map.getBearing(), duration: 1400 });
   }, [ready, selectedId, lat, lng]);
+
+  // Detail panel: fly to a named building in range.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map || !focus) return;
+    if (lastFocusTokenRef.current === focus.token) return;
+    lastFocusTokenRef.current = focus.token;
+    map.flyTo({
+      center: [focus.lng, focus.lat],
+      zoom: SELECTED_ZOOM,
+      pitch: modePitch(),
+      bearing: map.getBearing(),
+      duration: 1200,
+    });
+  }, [ready, focus]);
 
   return (
     <div className="absolute inset-0">
@@ -709,6 +871,8 @@ function addDispatchLayers(map: MapLibreMap, onFrame: (matrix: ArrayLike<number>
           'fill-extrusion-height': ['get', 'height'],
           'fill-extrusion-base': ['get', 'base'],
           'fill-extrusion-opacity': opacity,
+          // Soft fade when a building moves between primary and dim ranks.
+          'fill-extrusion-opacity-transition': { duration: 400, delay: 0 },
           // No vertical gradient: walls stay bright to the ground, like a lit volume.
           'fill-extrusion-vertical-gradient': false,
         },
@@ -778,9 +942,23 @@ function startRingPulse(map: MapLibreMap): () => void {
 }
 
 /** Incident building opacity per state and mode (satellite: semi-transparent so the roof shows). */
-const INCIDENT_OPACITY: Record<MapMode, Record<'ack' | 'open' | 'selected', number>> = {
-  '3d': { ack: 0.45, open: 0.82, selected: 1 },
-  sat: { ack: 0.35, open: 0.55, selected: 0.55 },
+const INCIDENT_OPACITY: Record<MapMode, Record<HighlightState, number>> = {
+  '3d': {
+    ack: 0.45,
+    open: 0.82,
+    selected: 1,
+    'ack-dim': 0.22,
+    'open-dim': 0.38,
+    'selected-dim': 0.5,
+  },
+  sat: {
+    ack: 0.35,
+    open: 0.55,
+    selected: 0.55,
+    'ack-dim': 0.18,
+    'open-dim': 0.28,
+    'selected-dim': 0.32,
+  },
 };
 
 /** Symbol layers kept in satellite mode: major road names, with a dark halo for photos. */
@@ -827,7 +1005,12 @@ function createModeStyler(map: MapLibreMap) {
 }
 
 /** Severity square with optional caller count; a leader line when it floats above a roof. */
-function createBadge(group: SceneGroup, selectedId: string | null, onSelect: (id: string) => void): HTMLElement {
+function createBadge(
+  group: SceneGroup,
+  selectedId: string | null,
+  onSelect: (id: string) => void,
+  moreInRange = 0,
+): HTMLElement {
   const primary = group.incidents[0];
   const t = tierStyle(primary.severityScore);
   const selected = group.incidents.some((i) => i._id === selectedId);
@@ -841,11 +1024,14 @@ function createBadge(group: SceneGroup, selectedId: string | null, onSelect: (id
   button.className = `group pointer-events-auto relative flex cursor-pointer items-stretch rounded-[2px] ${
     selected ? 'outline-2 outline-offset-2 outline-sky-400' : 'outline-1 outline-black/70'
   } group-data-[mode=sat]/map:bg-black/80 group-data-[mode=sat]/map:p-[2px]`;
+  const moreTip = moreInRange > 0 ? `, +${moreInRange} more in range` : '';
   button.setAttribute(
     'aria-label',
     `${incidentNumber(primary._id)} ${typeLabel(primary)}, severity ${primary.severityScore}` +
-      (group.incidents.length > 1 ? `, ${group.incidents.length} callers` : ''),
+      (group.incidents.length > 1 ? `, ${group.incidents.length} callers` : '') +
+      moreTip,
   );
+  if (moreInRange > 0) button.title = `+${moreInRange} more in range`;
   button.addEventListener('click', (e) => {
     e.stopPropagation();
     onSelect(primary._id);

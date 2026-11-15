@@ -2,13 +2,14 @@ import type { ReactNode } from 'react';
 import type { Incident, Trend } from '@/types/incident';
 import { CallerMessageSection } from './CallerMessageSection';
 import type { DashIncident } from './normalize';
+import { LocationSection } from './LocationSection';
+import type { IncidentLocation } from './locationEstimate';
 import { ResponsePlanSection, type CopyState } from './ResponsePlanSection';
 import {
   STATUS_LONG,
   elapsed,
   estimateFloorRange,
   incidentNumber,
-  locationLabel,
   tierStyle,
   typeLabel,
 } from './severity';
@@ -29,6 +30,10 @@ type Props = {
   copyState: CopyState;
   onSendCallerMessage: (text: string) => void;
   onClearCallerMessage: () => void;
+  location?: IncidentLocation;
+  onConfirmBuilding: (osmId: string) => void;
+  onClearConfirmedBuilding: () => void;
+  onFlyToBuilding: (lng: number, lat: number) => void;
 };
 
 const TREND_LABEL: Record<Trend, string> = { new: 'New', worsening: '▲ Worsening', stable: '▬ Stable', improving: '▼ Improving' };
@@ -51,6 +56,10 @@ export function IncidentDetail({
   copyState,
   onSendCallerMessage,
   onClearCallerMessage,
+  location,
+  onConfirmBuilding,
+  onClearConfirmedBuilding,
+  onFlyToBuilding,
 }: Props) {
   if (!incident) {
     return (
@@ -61,8 +70,10 @@ export function IncidentDetail({
   }
 
   const t = tierStyle(incident.severityScore);
-  const { building, iceProfile: ice, gps } = incident;
+  const { iceProfile: ice, gps } = incident;
   const floorRange = estimateFloorRange(incident);
+  const showFloorEstimate =
+    floorRange && (location?.confidence === 'single' || location?.confidence === 'confirmed');
 
   return (
     <section className="flex min-h-0 flex-col border-l border-neutral-800" aria-label="Incident detail">
@@ -116,6 +127,7 @@ export function IncidentDetail({
 
         <ResponsePlanSection
           incident={incident}
+          location={location}
           entry={plan}
           onGenerate={onGeneratePlan}
           now={now}
@@ -176,43 +188,22 @@ export function IncidentDetail({
         </Section>
 
         <Section title="Location">
-          {gps ? (
-            <Grid>
-              <Row label="Building">{locationLabel(incident)}</Row>
-              {building?.type && <Row label="Type">{building.type}</Row>}
-              {building && building.floors > 0 && (
-                <Row label="Floors">
-                  <span className={MONO}>{building.floors}</span>
-                </Row>
-              )}
-              {building?.notes && <Row label="Notes">{building.notes}</Row>}
-              {floorRange && (
-                <Row label="Est. floor">
-                  <span className={MONO}>{floorRange[0] === floorRange[1] ? floorRange[0] : `${floorRange[0]}–${floorRange[1]}`}</span>{' '}
-                  <span className="text-neutral-500">(low confidence)</span>
-                </Row>
-              )}
-              <Row label="Coords">
-                <span className={MONO}>
-                  {gps.lat.toFixed(5)}, {gps.lng.toFixed(5)}
-                </span>
-              </Row>
-              {gps.accuracy !== undefined && (
-                <Row label="GPS accuracy">
-                  <span className={MONO}>±{Math.round(gps.accuracy)} m</span>
-                </Row>
-              )}
-            </Grid>
-          ) : (
-            <>
-              <p className="text-neutral-300">No GPS received</p>
-              {building && (
-                <Grid>
-                  <Row label="Building">{building.name}</Row>
-                  {building.notes && <Row label="Notes">{building.notes}</Row>}
-                </Grid>
-              )}
-            </>
+          <LocationSection
+            location={location}
+            fallbackBuildingName={incident.building?.name}
+            gps={gps}
+            onConfirm={onConfirmBuilding}
+            onClearConfirm={onClearConfirmedBuilding}
+            onFlyTo={onFlyToBuilding}
+          />
+          {showFloorEstimate && floorRange && (
+            <div className="mt-1.5 grid grid-cols-[88px_minmax(0,1fr)] gap-x-2 text-[12px]">
+              <span className={`${LABEL} text-neutral-500`}>Est. floor</span>
+              <span className="text-neutral-200">
+                <span className={MONO}>{floorRange[0] === floorRange[1] ? floorRange[0] : `${floorRange[0]}–${floorRange[1]}`}</span>{' '}
+                <span className="text-neutral-500">(low confidence)</span>
+              </span>
+            </div>
           )}
         </Section>
 
