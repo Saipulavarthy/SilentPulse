@@ -22,7 +22,14 @@ import { MONO } from '@/components/dispatch/ui';
 
 export default function DispatchPage() {
   // Live /api/incidents every 2 s, or mock data at ?mock=1 only.
-  const { incidents, sync, setStatus: saveStatus, mutationError, clearMutationError } = useIncidentFeed();
+  const {
+    incidents,
+    sync,
+    setStatus: saveStatus,
+    setDispatcherMessage: saveDispatcherMessage,
+    mutationError,
+    clearMutationError,
+  } = useIncidentFeed();
   const [filter, setFilter] = useState<QueueFilter>('open');
   // null until the dispatcher picks one; until then the top open incident is selected.
   // Selection is by _id, so it stays on the same incident while polls reorder the list.
@@ -274,6 +281,8 @@ export default function DispatchPage() {
             onToggleTick={(action) => selected && toggleTick(selected._id, action)}
             onCopyBrief={() => void copyBrief()}
             copyState={copied && copied.id === selected?._id ? copied.state : null}
+            onSendCallerMessage={(text) => selected && void saveDispatcherMessage(selected._id, text)}
+            onClearCallerMessage={() => selected && void saveDispatcherMessage(selected._id, '')}
           />
         )}
       </main>
