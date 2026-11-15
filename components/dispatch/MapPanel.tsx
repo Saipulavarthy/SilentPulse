@@ -10,6 +10,9 @@ export type MapPanelProps = {
   incidents: Incident[];
   selectedId: string | null;
   onSelect: (id: string) => void;
+  /** Full-screen map (F); the control in the map's stack shows and toggles it. */
+  fullscreen?: boolean;
+  onToggleFullscreen?: () => void;
 };
 
 function MapLoading() {
@@ -33,7 +36,7 @@ const LEGEND: { tier: (typeof TIERS)[number]; range: string }[] = [
 
 export function MapPanel(props: MapPanelProps) {
   return (
-    <section className="relative isolate min-h-0 overflow-hidden" aria-label="Incident map">
+    <section className="absolute inset-0 isolate overflow-hidden" aria-label="Incident map">
       <MapErrorBoundary>
         <IncidentMap {...props} />
       </MapErrorBoundary>

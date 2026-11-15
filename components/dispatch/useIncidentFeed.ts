@@ -82,7 +82,7 @@ export function useIncidentFeed() {
 
   const { mutate } = swr;
   const setStatus = useCallback(
-    async (id: string, status: IncidentStatus) => {
+    async (id: string, status: IncidentStatus, verb?: string) => {
       setMutationError(null);
       if (mode === 'mock') {
         setMockList((list) => withStatus(list, id, status));
@@ -109,8 +109,8 @@ export function useIncidentFeed() {
           },
         );
       } catch (e) {
-        const verb = status === 'ACKNOWLEDGED' ? 'acknowledge' : status === 'RESOLVED' ? 'resolve' : 'update';
-        setMutationError(`Could not ${verb} ${incidentNumber(id)}: ${e instanceof Error ? e.message : String(e)}. Change rolled back.`);
+        const action = verb ?? (status === 'ACKNOWLEDGED' ? 'acknowledge' : status === 'RESOLVED' ? 'resolve' : 'update');
+        setMutationError(`Could not ${action} ${incidentNumber(id)}: ${e instanceof Error ? e.message : String(e)}. Change rolled back.`);
       }
     },
     [mode, mutate],
