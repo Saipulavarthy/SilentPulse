@@ -50,7 +50,8 @@ Rules:
 5. If severityTier is "low", the first action is to review the alert; recommend review, not dispatch.
 6. callerProfile belongs to the caller (whose phone sent the SOS). Use it for the person in distress only if triage and perception do not indicate someone else; otherwise call it the caller's and ask about the patient's history in unknowns. Never call the caller "patient" unless they are clearly the one in distress. Mention the profile only if it changes what responders do.
 7. If callerDevice is present (stealth mode), never suggest calling, ringing, vibrating, flashing or audible alerts. Silent on-screen dispatcher messages are allowed. Tag any item about stealth mode with source callerDevice, not callerProfile.
-8. Each risk, action and unknown under 20 words.`;
+8. Each risk, action and unknown under 20 words.
+9. If contactNotified is present, never suggest notifying, calling or informing family, next of kin or the emergency contact.`;
 
 const ITEM: ResponseSchema = {
   type: SchemaType.OBJECT,
@@ -110,8 +111,11 @@ function parseRequest(body: unknown): PlanRequest | null {
 
 export async function POST(request: Request): Promise<Response> {
   let input: PlanRequest | null;
+  let contactNotified = false;
   try {
-    input = parseRequest(await request.json());
+    const body: unknown = await request.json();
+    input = parseRequest(body);
+    contactNotified = (body as { contactNotified?: unknown } | null)?.contactNotified === true;
   } catch {
     input = null;
   }
@@ -136,6 +140,7 @@ export async function POST(request: Request): Promise<Response> {
   const locOpts = {
     buildingsInRange: input.buildingsInRange,
     locationConfidence: input.locationConfidence,
+    contactNotified,
   };
   const facts = planFacts(input.incident, input.building, input.otherCallers, Date.now(), locOpts);
 

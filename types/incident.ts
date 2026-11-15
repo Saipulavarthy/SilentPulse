@@ -1,6 +1,8 @@
 // Shared contract between the triage backend and the dispatcher dashboard.
 // Changes here need sign-off from both sides.
 
+import type { ContactCall } from "./contactCall";
+
 /** UNKNOWN = low-bandwidth SOS (no image/audio), so nothing was classified. */
 export type CrisisType =
   | "ENVIRONMENTAL_HAZARD"
@@ -124,6 +126,8 @@ export interface Incident {
   escalationReason?: string;
   updateCount?: number;
   timeline?: TimelineEntry[];
+  /** Dispatcher-triggered calls to the emergency contact, oldest first. */
+  contactCalls?: ContactCall[];
   /** ISO 8601 string. */
   createdAt: string;
   /** ISO 8601 string. */

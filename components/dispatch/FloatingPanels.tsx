@@ -96,6 +96,7 @@ export function FloatingDetail({
   onToggle,
   actions,
   location,
+  contactLine,
 }: {
   incident: DashIncident | null;
   plan: PlanEntry | undefined;
@@ -103,6 +104,8 @@ export function FloatingDetail({
   onToggle: () => void;
   actions: StatusActionHandlers;
   location?: IncidentLocation;
+  /** Compact emergency-contact call status, e.g. "Alert call: Ringing". */
+  contactLine?: string | null;
 }) {
   return (
     <section aria-label="Selected incident (full screen)" className={`${FLOAT} absolute top-3 right-3 z-10 w-[340px]`}>
@@ -136,6 +139,12 @@ export function FloatingDetail({
               </p>
             )}
           </div>
+          {contactLine && (
+            <div className={`${MONO} text-[11px] text-neutral-300`} aria-label="Emergency contact call status">
+              <span className="text-neutral-500">Contact · </span>
+              {contactLine}
+            </div>
+          )}
           <StatusActions incident={incident} compact {...actions} />
         </div>
       )}

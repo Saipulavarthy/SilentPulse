@@ -222,6 +222,7 @@ export function IncidentQueue({ incidents, counts, filter, onFilter, selectedId,
         <span>C copy</span>
         <span>F full</span>
         <span>M map</span>
+        <span>Shift+C call contact</span>
         <span>Shift+D delete</span>
       </div>
     </section>

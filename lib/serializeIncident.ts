@@ -9,6 +9,7 @@ import {
   statusToDispatcherStatus,
   VICTIM_INSTRUCTIONS,
 } from "@/types/incident";
+import type { ContactCall } from "@/types/contactCall";
 
 type LeanIce = {
   name?: string | null;
@@ -76,9 +77,41 @@ type LeanIncident = {
   escalationReason?: string | null;
   updateCount?: number | null;
   timeline?: LeanTimelineEntry[] | null;
+  contactCalls?: LeanContactCall[] | null;
   createdAt?: Date | string;
   updatedAt?: Date | string;
 };
+
+type LeanContactCall = {
+  kind: string;
+  status: string;
+  to: string;
+  script: string;
+  spoken?: string | null;
+  callSid?: string | null;
+  requestedAt?: Date | string;
+  updatedAt?: Date | string;
+  answeredAt?: Date | string | null;
+};
+
+function serializeContactCalls(
+  calls: LeanContactCall[] | null | undefined,
+): ContactCall[] | undefined {
+  if (!calls || calls.length === 0) return undefined;
+  return calls.map((c) => ({
+    kind: c.kind as ContactCall["kind"],
+    status: c.status as ContactCall["status"],
+    to: c.to,
+    script: c.script,
+    ...(c.spoken === "script" || c.spoken === "trialTemplate"
+      ? { spoken: c.spoken as ContactCall["spoken"] }
+      : {}),
+    callSid: c.callSid ?? "",
+    requestedAt: toIso(c.requestedAt),
+    updatedAt: toIso(c.updatedAt),
+    ...(c.answeredAt ? { answeredAt: toIso(c.answeredAt) } : {}),
+  }));
+}
 
 function serializeIce(ice: LeanIce): IceProfile | null {
   if (!ice) return null;
@@ -223,6 +256,9 @@ export function serializeIncident(doc: LeanIncident): Incident {
       : {}),
     ...(serializeTimeline(doc.timeline)
       ? { timeline: serializeTimeline(doc.timeline) }
+      : {}),
+    ...(serializeContactCalls(doc.contactCalls)
+      ? { contactCalls: serializeContactCalls(doc.contactCalls) }
       : {}),
     createdAt: toIso(doc.createdAt),
     updatedAt: toIso(doc.updatedAt),
