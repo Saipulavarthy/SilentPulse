@@ -25,10 +25,12 @@ type Props = {
   selectedId: string | null;
   onSelect: (id: string) => void;
   now: number | null;
+  /** Shown as a Reopen button on rows in the Resolved tab. */
+  onReopen: (id: string) => void;
 };
 
 const COLS =
-  'grid grid-cols-[20px_54px_minmax(0,1.1fr)_minmax(0,1fr)_50px_70px] items-center gap-x-1.5';
+  'grid grid-cols-[20px_68px_minmax(0,1.1fr)_minmax(0,1fr)_50px_70px] items-center gap-x-1.5';
 const rowId = (id: string) => `queue-row-${id}`;
 
 /**
@@ -61,7 +63,7 @@ function useRowReorderAnimation(order: string) {
   };
 }
 
-export function IncidentQueue({ incidents, counts, filter, onFilter, selectedId, onSelect, now }: Props) {
+export function IncidentQueue({ incidents, counts, filter, onFilter, selectedId, onSelect, now, onReopen }: Props) {
   useEffect(() => {
     if (selectedId) document.getElementById(rowId(selectedId))?.scrollIntoView({ block: 'nearest' });
   }, [selectedId]);
@@ -134,7 +136,6 @@ export function IncidentQueue({ incidents, counts, filter, onFilter, selectedId,
               </span>
               <span className="flex min-w-0 items-center gap-1" title={typeLabel(incident)}>
                 <span className="truncate">{typeLabel(incident)}</span>
-                {incident.escalated && <RowTag tone="alert">Signal lost</RowTag>}
                 {incident.simulated && <RowTag>Sim</RowTag>}
               </span>
               <span className={`truncate ${incident.gps || incident.building ? 'text-neutral-400' : 'text-neutral-600'}`} title={locationLabel(incident)}>
@@ -142,13 +143,30 @@ export function IncidentQueue({ incidents, counts, filter, onFilter, selectedId,
               </span>
               <span className={`${MONO} text-right text-[12px]`}>{elapsed(incident.createdAt, now)}</span>
               <span className={`flex items-center gap-1.5 ${MONO} text-[10px]`}>
-                <span className={incident.status === 'ACTIVE' ? 'text-neutral-200' : 'text-neutral-500'}>
-                  {STATUS_SHORT[incident.status]}
-                </span>
-                {review && (
-                  <span className="rounded-[2px] border border-neutral-600 px-1 leading-[14px] text-neutral-400">
-                    REVIEW
+                {filter === 'resolved' && incident.status === 'RESOLVED' ? (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onReopen(incident._id);
+                    }}
+                    className={`rounded-[2px] border border-neutral-600 px-1 leading-[14px] text-neutral-200 hover:bg-neutral-800 ${FOCUS_RING}`}
+                  >
+                    REOPEN
+                  </button>
+                ) : (
+                  <span className={incident.status === 'ACTIVE' ? 'text-neutral-200' : 'text-neutral-500'}>
+                    {STATUS_SHORT[incident.status]}
                   </span>
+                )}
+                {incident.escalated ? (
+                  <RowTag tone="alert">Lost</RowTag>
+                ) : (
+                  review && (
+                    <span className="rounded-[2px] border border-neutral-600 px-1 leading-[14px] text-neutral-400">
+                      REVIEW
+                    </span>
+                  )
                 )}
               </span>
             </div>
@@ -156,10 +174,19 @@ export function IncidentQueue({ incidents, counts, filter, onFilter, selectedId,
         })}
       </div>
 
-      <div className={`flex h-7 shrink-0 items-center gap-3 border-t border-neutral-800 px-3 ${MONO} text-[10px] text-neutral-600`}>
-        <span>↑↓ / J K select</span>
-        <span>A acknowledge</span>
+      <div
+        className={`flex shrink-0 flex-wrap items-center gap-x-3 gap-y-0.5 border-t border-neutral-800 px-3 py-1.5 ${MONO} text-[10px] text-neutral-600 [&>span]:whitespace-nowrap`}
+        aria-label="Keyboard shortcuts"
+      >
+        <span>↑↓ J K select</span>
+        <span>A ack</span>
+        <span>U unack</span>
         <span>R resolve</span>
+        <span>O reopen</span>
+        <span>G plan</span>
+        <span>C copy</span>
+        <span>F full</span>
+        <span>M map</span>
       </div>
     </section>
   );

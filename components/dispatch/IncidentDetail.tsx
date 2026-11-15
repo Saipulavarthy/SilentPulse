@@ -12,14 +12,14 @@ import {
   typeLabel,
 } from './severity';
 import { SeveritySquare } from './SeveritySquare';
-import { FOCUS_RING, LABEL, MONO } from './ui';
+import { StatusActions, type StatusActionHandlers } from './StatusActions';
+import { LABEL, MONO } from './ui';
 import type { PlanEntry } from './useResponsePlans';
 
 type Props = {
   incident: DashIncident | null;
   now: number | null;
-  onAcknowledge: () => void;
-  onResolve: () => void;
+  actions: StatusActionHandlers;
   plan: PlanEntry | undefined;
   onGeneratePlan: () => void;
   ticked: string[];
@@ -39,8 +39,7 @@ const clock = (iso: string) => {
 export function IncidentDetail({
   incident,
   now,
-  onAcknowledge,
-  onResolve,
+  actions,
   plan,
   onGeneratePlan,
   ticked,
@@ -58,8 +57,6 @@ export function IncidentDetail({
 
   const t = tierStyle(incident.severityScore);
   const { building, iceProfile: ice, gps } = incident;
-  const canAck = incident.status === 'ACTIVE';
-  const canResolve = incident.status !== 'RESOLVED';
   const floorRange = estimateFloorRange(incident);
   const victim = Array.isArray(incident.victimInstructions)
     ? incident.victimInstructions
@@ -164,7 +161,8 @@ export function IncidentDetail({
         </Section>
 
         {victim.length > 0 && (
-          <Section title="Shown to caller">
+          <Section title="Suggested caller instructions">
+            <p className="mb-1 text-[11px] text-neutral-500">Not sent to the phone.</p>
             <ul className="list-none space-y-0.5 p-0">
               {victim.map((v) => (
                 <li key={v} className="text-neutral-300">
@@ -243,13 +241,8 @@ export function IncidentDetail({
         </Section>
       </div>
 
-      <footer className="grid shrink-0 grid-cols-2 gap-2 border-t border-neutral-800 p-3">
-        <ActionButton onClick={onAcknowledge} disabled={!canAck} shortcut="A">
-          Acknowledge
-        </ActionButton>
-        <ActionButton onClick={onResolve} disabled={!canResolve} shortcut="R">
-          Resolve
-        </ActionButton>
+      <footer className="shrink-0 border-t border-neutral-800 p-3">
+        <StatusActions incident={incident} {...actions} />
       </footer>
     </section>
   );
@@ -339,30 +332,5 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
       <dt className="text-neutral-500">{label}</dt>
       <dd className="text-neutral-200">{children}</dd>
     </>
-  );
-}
-
-function ActionButton({
-  onClick,
-  disabled,
-  shortcut,
-  children,
-}: {
-  onClick: () => void;
-  disabled: boolean;
-  shortcut: string;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      aria-keyshortcuts={shortcut}
-      className={`flex h-8 items-center justify-between rounded-[2px] border border-neutral-700 bg-neutral-900 px-3 text-neutral-100 hover:bg-neutral-800 disabled:cursor-not-allowed disabled:border-neutral-800 disabled:bg-transparent disabled:text-neutral-600 ${FOCUS_RING}`}
-    >
-      <span>{children}</span>
-      <kbd className={`${MONO} rounded-[2px] border border-current/30 px-1 text-[11px] text-neutral-500`}>{shortcut}</kbd>
-    </button>
   );
 }

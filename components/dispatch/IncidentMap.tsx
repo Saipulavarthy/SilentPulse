@@ -33,7 +33,9 @@ import {
   type SceneGroup,
   type TilePolygon,
 } from './mapScene';
-import { incidentNumber, tierStyle, typeLabel } from './severity';
+import { CRISIS_ICON_LABEL, crisisIconSvg } from './crisisIcons';
+import { TIER_STYLES, incidentNumber, tierStyle, typeLabel } from './severity';
+import { severityTier } from '@/types/incident';
 import { MONO } from './ui';
 
 // MapLibre locates its worker next to its own module, which bundling breaks.
@@ -58,7 +60,7 @@ const FALLBACK_CENTER: [number, number] = [-72.527, 42.389];
 
 const GROUND = '#16171a';
 const ROAD = '#24252a';
-const SLATE = '#5f6673';
+const SLATE = '#5a6577';
 const ACCENT = '#38bdf8';
 
 // Satellite: USGS National Map "Imagery Only" (USDA NAIP orthoimagery), public domain, no key.
@@ -93,7 +95,7 @@ const MAP_CHROME = [
 type Badge = { group: SceneGroup; el: HTMLElement };
 type Hover = { key: string; incidents: Incident[] };
 
-export default function IncidentMap({ incidents, selectedId, onSelect }: MapPanelProps) {
+export default function IncidentMap({ incidents, selectedId, onSelect, fullscreen = false, onToggleFullscreen }: MapPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
@@ -112,6 +114,8 @@ export default function IncidentMap({ incidents, selectedId, onSelect }: MapPane
   const modeRef = useRef<MapMode>('3d');
   const stylerRef = useRef<((m: MapMode) => void) | null>(null);
   const modeControlRef = useRef<ModeControl | null>(null);
+  const fullscreenControlRef = useRef<FullscreenControl | null>(null);
+  const toggleFullscreen = useEffectEvent(() => onToggleFullscreen?.());
   const pitchBeforeSatRef = useRef(PITCH);
   const satErrorsRef = useRef(0);
 
@@ -159,7 +163,10 @@ export default function IncidentMap({ incidents, selectedId, onSelect }: MapPane
           : g.incidents.some((i) => i.status === 'ACTIVE')
             ? 'open'
             : 'ack';
-        const color = tierStyle(g.incidents[0].severityScore).hex;
+        const tier = severityTier(g.incidents[0].severityScore);
+        // Brighter than the legend colour, with flat lighting below: reads as lit from within.
+        const color = lighten(TIER_STYLES[tier].hex, 0.18);
+        const ringTier = tier === 'lethal' ? 'lethal' : 'other';
         return [
           // Slightly inflated so the coloured shell doesn't z-fight with the slate building.
           ...g.footprint.parts.map((part) => ({
@@ -169,8 +176,14 @@ export default function IncidentMap({ incidents, selectedId, onSelect }: MapPane
           })),
           {
             type: 'Feature' as const,
-            properties: { kind: 'outline', state },
+            properties: { kind: 'outline', state, color },
             geometry: { type: 'Polygon' as const, coordinates: inflate(g.footprint.outline, 0.8) },
+          },
+          // Pulsing ring on the ground around the base.
+          {
+            type: 'Feature' as const,
+            properties: { kind: 'ring', state, color, ring: ringTier },
+            geometry: { type: 'Polygon' as const, coordinates: inflate(g.footprint.outline, 5) },
           },
         ];
       }),
@@ -324,6 +337,7 @@ export default function IncidentMap({ incidents, selectedId, onSelect }: MapPane
     const container = containerRef.current;
     if (!container) return;
 
+    let stopPulse = () => {};
     const map = new MapLibreMap({
       container,
       style: STYLE_URL,
@@ -344,11 +358,15 @@ export default function IncidentMap({ incidents, selectedId, onSelect }: MapPane
     const modeControl = new ModeControl((m) => chooseMode(m));
     modeControlRef.current = modeControl;
     map.addControl(modeControl, 'top-left');
+    const fullscreenControl = new FullscreenControl(() => toggleFullscreen());
+    fullscreenControlRef.current = fullscreenControl;
+    map.addControl(fullscreenControl, 'top-left');
 
     map.on('load', () => {
       restyleBase(map);
       addDispatchLayers(map, positionBadges);
       stylerRef.current = createModeStyler(map);
+      stopPulse = startRingPulse(map);
       setReady(true);
     });
     // Imagery tile failures: fall back to 3D (handled in onSatelliteError).
@@ -374,11 +392,13 @@ export default function IncidentMap({ incidents, selectedId, onSelect }: MapPane
 
     mapRef.current = map;
     return () => {
+      stopPulse();
       cancelAnimationFrame(frame);
       map.remove();
       mapRef.current = null;
       stylerRef.current = null;
       modeControlRef.current = null;
+      fullscreenControlRef.current = null;
     };
   }, [initialDrawn]);
 
@@ -402,6 +422,10 @@ export default function IncidentMap({ incidents, selectedId, onSelect }: MapPane
       }
     }
   }, [ready, mode]);
+
+  useEffect(() => {
+    fullscreenControlRef.current?.setActive(fullscreen);
+  }, [fullscreen, ready]);
 
   useEffect(() => {
     if (!notice) return;
@@ -541,6 +565,17 @@ function restyleBase(map: MapLibreMap) {
 
   // Light from one side and fairly high: roofs brighter than walls, adjacent walls differ.
   map.setLight({ anchor: 'map', position: [1.4, 215, 35], color: '#ffffff', intensity: 0.5 });
+
+  // Depth: a dark blue-grey sky fading into a soft haze at the horizon.
+  map.setSky({
+    'sky-color': '#0b0f17',
+    'horizon-color': '#2a3242',
+    'fog-color': '#1b1e25',
+    'sky-horizon-blend': 0.7,
+    'horizon-fog-blend': 0.6,
+    'fog-ground-blend': 0.75,
+    'atmosphere-blend': 0,
+  });
 }
 
 /** Accuracy circles, slate buildings, incident buildings and the badge sync layer: above roads, under labels. */
@@ -627,6 +662,30 @@ function addDispatchLayers(map: MapLibreMap, onFrame: (matrix: ArrayLike<number>
   );
 
   map.addSource(INCIDENT_BUILDINGS_SOURCE, { type: 'geojson', data: EMPTY });
+  // Soft severity glow on the ground at the base of each incident building.
+  map.addLayer(
+    {
+      id: 'sp-incident-glow',
+      type: 'line',
+      source: INCIDENT_BUILDINGS_SOURCE,
+      filter: ['==', ['get', 'kind'], 'outline'],
+      paint: { 'line-color': ['get', 'color'], 'line-width': 12, 'line-blur': 10, 'line-opacity': 0.5 },
+    },
+    beforeLabels,
+  );
+  // Pulsing rings: one layer per speed, animated by useRingPulse (static with reduced motion).
+  for (const ring of ['lethal', 'other'] as const) {
+    map.addLayer(
+      {
+        id: `sp-ring-${ring}`,
+        type: 'line',
+        source: INCIDENT_BUILDINGS_SOURCE,
+        filter: ['all', ['==', ['get', 'kind'], 'ring'], ['==', ['get', 'ring'], ring]],
+        paint: { 'line-color': ['get', 'color'], 'line-width': 2, 'line-blur': 1.5, 'line-opacity': 0.6 },
+      },
+      beforeLabels,
+    );
+  }
   map.addLayer(
     {
       id: 'sp-incident-outline',
@@ -650,7 +709,8 @@ function addDispatchLayers(map: MapLibreMap, onFrame: (matrix: ArrayLike<number>
           'fill-extrusion-height': ['get', 'height'],
           'fill-extrusion-base': ['get', 'base'],
           'fill-extrusion-opacity': opacity,
-          'fill-extrusion-vertical-gradient': true,
+          // No vertical gradient: walls stay bright to the ground, like a lit volume.
+          'fill-extrusion-vertical-gradient': false,
         },
       },
       beforeLabels,
@@ -681,6 +741,40 @@ function addDispatchLayers(map: MapLibreMap, onFrame: (matrix: ArrayLike<number>
     renderingMode: '2d',
     render: (_gl, args) => onFrame(args.modelViewProjectionMatrix),
   });
+}
+
+/** Mixes a hex colour toward white by `amount` (0–1). */
+function lighten(hex: string, amount: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  const mix = (c: number) => Math.round(c + (255 - c) * amount);
+  return `#${[mix(n >> 16), mix((n >> 8) & 255), mix(n & 255)].map((c) => c.toString(16).padStart(2, '0')).join('')}`;
+}
+
+/**
+ * Animates the ground rings: each expands and fades, lethal twice as fast. Static (a steady
+ * ring) when the user prefers reduced motion.
+ */
+function startRingPulse(map: MapLibreMap): () => void {
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (reduce) return () => {};
+  const PERIOD = { lethal: 900, other: 1800 } as const;
+  let frame = 0;
+  let last = 0;
+  const tick = (t: number) => {
+    frame = requestAnimationFrame(tick);
+    if (t - last < 33) return; // ~30 fps is plenty for a pulse
+    last = t;
+    for (const ring of ['lethal', 'other'] as const) {
+      const id = `sp-ring-${ring}`;
+      if (!map.getLayer(id)) continue;
+      const p = (t % PERIOD[ring]) / PERIOD[ring];
+      map.setPaintProperty(id, 'line-width', 2 + 14 * p);
+      map.setPaintProperty(id, 'line-blur', 1.5 + 8 * p);
+      map.setPaintProperty(id, 'line-opacity', 0.7 * (1 - p));
+    }
+  };
+  frame = requestAnimationFrame(tick);
+  return () => cancelAnimationFrame(frame);
 }
 
 /** Incident building opacity per state and mode (satellite: semi-transparent so the roof shows). */
@@ -759,7 +853,10 @@ function createBadge(group: SceneGroup, selectedId: string | null, onSelect: (id
 
   const square = document.createElement('span');
   square.className = `flex h-5 min-w-5 items-center justify-center rounded-[2px] px-1 text-[11px] font-semibold ${MONO} ${t.square} ${t.pulse}`;
-  square.textContent = String(primary.severityScore);
+  square.className += ' gap-[3px]';
+  square.innerHTML = crisisIconSvg(primary.crisisType);
+  square.append(String(primary.severityScore));
+  square.title = CRISIS_ICON_LABEL[primary.crisisType];
   button.appendChild(square);
 
   if (group.incidents.length > 1) {
@@ -839,6 +936,41 @@ class ModeControl implements IControl {
     this.container?.remove();
     this.container = null;
     this.buttons.clear();
+  }
+}
+
+/** Full-screen map toggle, styled like the Overview control. Shortcut: F (Esc exits). */
+class FullscreenControl implements IControl {
+  private container: HTMLDivElement | null = null;
+  private button: HTMLButtonElement | null = null;
+  constructor(private readonly onClick: () => void) {}
+
+  onAdd(): HTMLElement {
+    const container = document.createElement('div');
+    container.className = 'maplibregl-ctrl maplibregl-ctrl-group';
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'w-auto! px-2! text-[11px] font-medium tracking-[0.06em] text-neutral-300! uppercase';
+    button.setAttribute('aria-keyshortcuts', 'F');
+    button.addEventListener('click', this.onClick);
+    container.appendChild(button);
+    this.container = container;
+    this.button = button;
+    this.setActive(false);
+    return container;
+  }
+
+  setActive(active: boolean): void {
+    if (!this.button) return;
+    this.button.textContent = active ? 'Exit full' : 'Full screen';
+    this.button.title = active ? 'Exit full screen (F or Esc)' : 'Full-screen map (F)';
+    this.button.setAttribute('aria-pressed', String(active));
+  }
+
+  onRemove(): void {
+    this.container?.remove();
+    this.container = null;
+    this.button = null;
   }
 }
 

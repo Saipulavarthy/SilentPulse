@@ -2,7 +2,14 @@
 
 import { useEffect, useEffectEvent, useMemo, useState } from 'react';
 import type { IncidentStatus } from '@/types/incident';
+import { FloatingDetail, FloatingQueue } from '@/components/dispatch/FloatingPanels';
 import { IncidentDetail } from '@/components/dispatch/IncidentDetail';
+import {
+  resolveNeedsConfirm,
+  staleReopenMinutes,
+  type PendingConfirm,
+  type StatusActionHandlers,
+} from '@/components/dispatch/StatusActions';
 import { IncidentQueue } from '@/components/dispatch/IncidentQueue';
 import { MapPanel } from '@/components/dispatch/MapPanel';
 import { TopBar } from '@/components/dispatch/TopBar';
@@ -20,6 +27,11 @@ export default function DispatchPage() {
   // null until the dispatcher picks one; until then the top open incident is selected.
   // Selection is by _id, so it stays on the same incident while polls reorder the list.
   const [pickedId, setPickedId] = useState<string | null>(null);
+  // Full-screen map (F / Esc). Camera and selection live outside this, so both are kept.
+  const [fullscreen, setFullscreen] = useState(false);
+  const [floatCollapsed, setFloatCollapsed] = useState({ queue: false, detail: false });
+  /** Open confirmation (resolve, or reopen of a stale session), for one incident. */
+  const [confirm, setConfirm] = useState<({ id: string } & PendingConfirm) | null>(null);
   const { now } = useClock(1000);
 
   const visible = useMemo(() => applyFilter(incidents, filter), [incidents, filter]);
@@ -78,33 +90,98 @@ export default function DispatchPage() {
     if (visible.length === 0) return;
     const idx = visible.findIndex((i) => i._id === selectedId);
     const next = idx === -1 ? 0 : Math.min(visible.length - 1, Math.max(0, idx + delta));
-    setPickedId(visible[next]._id);
+    select(visible[next]._id);
   }
 
   /** Optimistic status change; if the incident leaves the current view, select the row that took its place. */
-  function setStatus(status: IncidentStatus) {
-    if (!selected) return;
-    if (status === 'ACKNOWLEDGED' && selected.status !== 'ACTIVE') return;
-    if (status === 'RESOLVED' && selected.status === 'RESOLVED') return;
-
-    const nextVisible = applyFilter(
-      incidents.map((i) => (i._id === selected._id ? { ...i, status } : i)),
-      filter,
-    );
-    if (!nextVisible.some((i) => i._id === selected._id) && nextVisible.length > 0) {
-      const idx = visible.findIndex((i) => i._id === selected._id);
-      setPickedId(nextVisible[Math.min(Math.max(idx, 0), nextVisible.length - 1)]._id);
+  function changeStatus(id: string, status: IncidentStatus, verb: string) {
+    const target = incidents.find((i) => i._id === id);
+    if (!target || target.status === status) return;
+    setConfirm(null);
+    if (id === selectedId) {
+      const nextVisible = applyFilter(
+        incidents.map((i) => (i._id === id ? { ...i, status } : i)),
+        filter,
+      );
+      if (!nextVisible.some((i) => i._id === id) && nextVisible.length > 0) {
+        const idx = visible.findIndex((i) => i._id === id);
+        setPickedId(nextVisible[Math.min(Math.max(idx, 0), nextVisible.length - 1)]._id);
+      }
     }
-    void saveStatus(selected._id, status);
+    void saveStatus(id, status, verb);
+  }
+
+  const acknowledge = () => selected?.status === 'ACTIVE' && changeStatus(selected._id, 'ACKNOWLEDGED', 'acknowledge');
+  const unacknowledge = () => selected?.status === 'ACKNOWLEDGED' && changeStatus(selected._id, 'ACTIVE', 'unacknowledge');
+  /**
+   * A live session last seen over 60 s ago is escalated by the API once it is ACTIVE again
+   * (signal lost, severity 10), so ask first. Recent or session-less incidents reopen at once.
+   */
+  const reopen = (id = selected?._id) => {
+    const target = incidents.find((i) => i._id === id);
+    if (target?.status !== 'RESOLVED') return;
+    const minutes = staleReopenMinutes(target, Date.now());
+    if (minutes === null) return changeStatus(target._id, 'ACTIVE', 'reopen');
+    setPickedId(target._id); // the prompt shows in this incident's panel
+    setConfirm({ id: target._id, kind: 'reopen', minutes });
+  };
+  /** Severity ≥ 7, worsening or signal lost: ask first. Otherwise resolve at once. */
+  const resolve = () => {
+    if (!selected || selected.status === 'RESOLVED') return;
+    if (resolveNeedsConfirm(selected) && confirm?.id !== selected._id) setConfirm({ id: selected._id, kind: 'resolve' });
+    else changeStatus(selected._id, 'RESOLVED', 'resolve');
+  };
+  const confirming: PendingConfirm | null = selected && confirm?.id === selected._id ? confirm : null;
+  const confirmPending = () => {
+    if (!selected || !confirming) return;
+    if (confirming.kind === 'reopen') changeStatus(selected._id, 'ACTIVE', 'reopen');
+    else changeStatus(selected._id, 'RESOLVED', 'resolve');
+  };
+
+  const actions: StatusActionHandlers = {
+    onAcknowledge: acknowledge,
+    onUnacknowledge: unacknowledge,
+    onResolve: resolve,
+    onReopen: () => reopen(),
+    confirming,
+    onConfirm: confirmPending,
+    onCancelConfirm: () => setConfirm(null),
+  };
+
+  function select(id: string) {
+    setConfirm(null);
+    setPickedId(id);
   }
 
   const onKeyDown = useEffectEvent((e: KeyboardEvent) => {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     const target = e.target as HTMLElement | null;
-    // Leave typing and the map's own arrow-key panning alone.
-    if (target?.closest('input, textarea, select, [contenteditable="true"], .maplibregl-map')) return;
+    if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
+    const key = e.key.toLowerCase();
+    // Leave the map's own arrow-key panning alone when it has focus.
+    if (key.startsWith('arrow') && target?.closest('.maplibregl-map')) return;
 
-    switch (e.key.toLowerCase()) {
+    // An open confirmation takes Enter and Esc first.
+    if (confirming && (key === 'enter' || key === 'escape')) {
+      e.preventDefault();
+      if (key === 'enter') confirmPending();
+      else setConfirm(null);
+      return;
+    }
+
+    switch (key) {
+      case 'escape':
+        if (fullscreen) setFullscreen(false);
+        break;
+      case 'f':
+        setFullscreen((v) => !v);
+        break;
+      case 'o':
+        reopen();
+        break;
+      case 'u':
+        unacknowledge();
+        break;
       case 'arrowdown':
       case 'j':
         e.preventDefault();
@@ -116,10 +193,10 @@ export default function DispatchPage() {
         moveSelection(-1);
         break;
       case 'a':
-        setStatus('ACKNOWLEDGED');
+        acknowledge();
         break;
       case 'r':
-        setStatus('RESOLVED');
+        resolve();
         break;
       case 'g':
         generatePlan();
@@ -146,29 +223,59 @@ export default function DispatchPage() {
           </button>
         </div>
       )}
-      <main className="grid min-h-0 flex-1 grid-cols-[420px_minmax(0,1fr)_360px]">
-        <IncidentQueue
-          incidents={visible}
-          counts={counts}
-          filter={filter}
-          onFilter={changeFilter}
-          selectedId={selectedId}
-          onSelect={setPickedId}
-          now={now}
-        />
-        <MapPanel incidents={incidents} selectedId={selectedId} onSelect={setPickedId} />
-        <IncidentDetail
-          incident={selected}
-          now={now}
-          onAcknowledge={() => setStatus('ACKNOWLEDGED')}
-          onResolve={() => setStatus('RESOLVED')}
-          plan={selected ? plans[selected._id] : undefined}
-          onGeneratePlan={generatePlan}
-          ticked={selected ? (ticks[selected._id] ?? []) : []}
-          onToggleTick={(action) => selected && toggleTick(selected._id, action)}
-          onCopyBrief={() => void copyBrief()}
-          copyState={copied && copied.id === selected?._id ? copied.state : null}
-        />
+      {/* Same child positions in both layouts, so the map (and its camera) is never remounted. */}
+      <main className={fullscreen ? 'relative min-h-0 flex-1' : 'grid min-h-0 flex-1 grid-cols-[420px_minmax(0,1fr)_360px]'}>
+        {fullscreen ? (
+          <FloatingQueue
+            incidents={visible}
+            title={`Queue · ${FILTERS.find((f) => f.key === filter)?.label} ${visible.length}`}
+            selectedId={selectedId}
+            onSelect={select}
+            collapsed={floatCollapsed.queue}
+            onToggle={() => setFloatCollapsed((c) => ({ ...c, queue: !c.queue }))}
+          />
+        ) : (
+          <IncidentQueue
+            incidents={visible}
+            counts={counts}
+            filter={filter}
+            onFilter={changeFilter}
+            selectedId={selectedId}
+            onSelect={select}
+            now={now}
+            onReopen={(id) => reopen(id)}
+          />
+        )}
+        <div className={fullscreen ? 'absolute inset-0' : 'relative min-h-0'}>
+          <MapPanel
+            incidents={incidents}
+            selectedId={selectedId}
+            onSelect={select}
+            fullscreen={fullscreen}
+            onToggleFullscreen={() => setFullscreen((v) => !v)}
+          />
+        </div>
+        {fullscreen ? (
+          <FloatingDetail
+            incident={selected}
+            plan={selected ? plans[selected._id] : undefined}
+            collapsed={floatCollapsed.detail}
+            onToggle={() => setFloatCollapsed((c) => ({ ...c, detail: !c.detail }))}
+            actions={actions}
+          />
+        ) : (
+          <IncidentDetail
+            incident={selected}
+            now={now}
+            actions={actions}
+            plan={selected ? plans[selected._id] : undefined}
+            onGeneratePlan={generatePlan}
+            ticked={selected ? (ticks[selected._id] ?? []) : []}
+            onToggleTick={(action) => selected && toggleTick(selected._id, action)}
+            onCopyBrief={() => void copyBrief()}
+            copyState={copied && copied.id === selected?._id ? copied.state : null}
+          />
+        )}
       </main>
     </>
   );
