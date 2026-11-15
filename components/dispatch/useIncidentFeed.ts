@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState, useSyncExternalStore } from 'react';
+import { useCallback, useMemo, useState, useSyncExternalStore } from 'react';
 import useSWR from 'swr';
 import { awkwardIncidents } from '@/app/dispatch/awkwardIncidents';
 import { mockIncidents } from '@/app/dispatch/mockIncidents';
@@ -43,6 +43,17 @@ async function fetchIncidents(url: string): Promise<DashIncident[]> {
   return normalizeIncidents(body.incidents);
 }
 
+/** What a delete request covers. `resolved` and `all` delete server-side by status, not by id. */
+export type DeleteScope = { kind: 'one'; id: string } | { kind: 'resolved' } | { kind: 'all' };
+
+/** pending: DELETE in flight. done: server confirmed; dropped once a poll no longer returns it. */
+type Tombstone = 'pending' | 'done';
+
+function deleteUrl(scope: DeleteScope): string {
+  if (scope.kind === 'one') return `${ENDPOINT}/${encodeURIComponent(scope.id)}`;
+  return scope.kind === 'resolved' ? `${ENDPOINT}?status=RESOLVED` : `${ENDPOINT}?status=ALL&confirm=DELETE-ALL`;
+}
+
 const withStatus = (list: DashIncident[], id: string, status: IncidentStatus) =>
   list.map((i) => (i._id === id ? { ...i, status, dispatcherStatus: statusToDispatcherStatus(status), updatedAt: new Date().toISOString() } : i));
 
@@ -58,16 +69,32 @@ export function useIncidentFeed() {
   const [lastSync, setLastSync] = useState<number | null>(null);
   const [mockList, setMockList] = useState<DashIncident[]>(() => normalizeIncidents([...mockIncidents, ...awkwardIncidents]));
   const [mutationError, setMutationError] = useState<string | null>(null);
+  /** Deleted ids hidden from every view, so polls can't bring them back for a moment. */
+  const [tombstones, setTombstones] = useState<ReadonlyMap<string, Tombstone>>(() => new Map());
 
   const swr = useSWR(mode === 'live' ? ENDPOINT : null, fetchIncidents, {
     refreshInterval: POLL_MS,
     keepPreviousData: true,
     revalidateOnFocus: true,
     dedupingInterval: 1000,
-    onSuccess: () => setLastSync(Date.now()),
+    onSuccess: (data) => {
+      setLastSync(Date.now());
+      // A poll without a confirmed-deleted id proves it is gone: stop ignoring it.
+      setTombstones((prev) => {
+        if (prev.size === 0) return prev;
+        const present = new Set(data.map((i) => i._id));
+        const next = new Map(prev);
+        for (const [id, state] of prev) if (state === 'done' && !present.has(id)) next.delete(id);
+        return next.size === prev.size ? prev : next;
+      });
+    },
   });
 
-  const incidents: DashIncident[] = mode === 'mock' ? mockList : (swr.data ?? []);
+  const source = mode === 'mock' ? mockList : swr.data;
+  const incidents: DashIncident[] = useMemo(
+    () => (source ?? []).filter((i) => !tombstones.has(i._id)),
+    [source, tombstones],
+  );
 
   const sync: FeedSync =
     mode === null
@@ -163,12 +190,57 @@ export function useIncidentFeed() {
     [mode, mutate],
   );
 
+  /**
+   * Permanently deletes `ids` (the incidents the scope covers, as currently shown). They vanish
+   * at once; on failure they come back and an error is shown. Resolves to the removed ids, or
+   * null on failure. Mock mode: in memory only, no request.
+   */
+  const deleteIncidents = useCallback(
+    async (scope: DeleteScope, ids: string[]): Promise<string[] | null> => {
+      setMutationError(null);
+      const gone = new Set(ids);
+      if (mode === 'mock') {
+        setMockList((list) => list.filter((i) => !gone.has(i._id)));
+        return ids;
+      }
+      const mark = (state: Tombstone | null) =>
+        setTombstones((prev) => {
+          const next = new Map(prev);
+          for (const id of ids) {
+            if (state) next.set(id, state);
+            else next.delete(id);
+          }
+          return next;
+        });
+      mark('pending');
+      try {
+        const res = await fetch(deleteUrl(scope), { method: 'DELETE' });
+        const body = await res.json().catch(() => null);
+        // 404 on a single delete: already gone, which is what was asked for.
+        if (!res.ok && !(scope.kind === 'one' && res.status === 404)) throw new Error(body?.error ?? `HTTP ${res.status}`);
+        // Drop them from the cache too. This mutation also makes SWR discard any poll that
+        // started before it, so a stale response can't resurrect them.
+        await mutate((current) => (current ?? []).filter((i) => !gone.has(i._id)), { revalidate: false });
+        mark('done');
+        return ids;
+      } catch (e) {
+        mark(null);
+        const what =
+          scope.kind === 'one' ? incidentNumber(scope.id) : scope.kind === 'resolved' ? `${ids.length} resolved incidents` : 'all incidents';
+        setMutationError(`Could not delete ${what}: ${e instanceof Error ? e.message : String(e)}. Restored.`);
+        return null;
+      }
+    },
+    [mode, mutate],
+  );
+
   return {
     mode,
     incidents,
     sync,
     setStatus,
     setDispatcherMessage,
+    deleteIncidents,
     mutationError,
     clearMutationError: () => setMutationError(null),
   };

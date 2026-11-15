@@ -75,6 +75,12 @@ export function planBasis(
  */
 const isMockMode = () => typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('mock') === '1';
 
+/** `record` without `keys` (same object when none are present). */
+export function omitKeys<T>(record: Record<string, T>, keys: ReadonlySet<string>): Record<string, T> {
+  if (!Object.keys(record).some((k) => keys.has(k))) return record;
+  return Object.fromEntries(Object.entries(record).filter(([k]) => !keys.has(k)));
+}
+
 function toPlanBuilding(b: { name: string; type: string; floors: number; notes?: string }): PlanBuilding {
   return { name: b.name, type: b.type, floors: b.floors, notes: b.notes };
 }
@@ -166,14 +172,18 @@ export function useResponsePlans() {
   const queue = useRef<Job[]>([]);
   const pumping = useRef(false);
   const locationsRef = useRef<Map<string, IncidentLocation> | undefined>(undefined);
+  /** Deleted incidents: a request still in flight for one of these must not write a plan back. */
+  const forgotten = useRef(new Set<string>());
 
   /** One generation. Resolves to whether it may be worth one automatic retry. */
   const run = useCallback(
     async (incident: PlanIncident, context: Context, background: boolean): Promise<'done' | 'retryable'> => {
       const id = incident._id;
-      if (inFlight.current.has(id)) return 'done';
+      if (inFlight.current.has(id) || forgotten.current.has(id)) return 'done';
       handled.current.set(id, basisKey(incident));
-      const set = (entry: PlanEntry) => setPlans((prev) => ({ ...prev, [id]: entry }));
+      const set = (entry: PlanEntry) => {
+        if (!forgotten.current.has(id)) setPlans((prev) => ({ ...prev, [id]: entry }));
+      };
       const loc = locationsRef.current?.get(id);
       const basis = planBasis(incident, loc);
       const locOpts = {
@@ -282,5 +292,18 @@ export function useResponsePlans() {
     });
   }, []);
 
-  return { plans, generate, prefetch, ticks, toggleTick, setLocationsRef: (m: Map<string, IncidentLocation>) => { locationsRef.current = m; } };
+  /** Deleted incidents: drop their plans, ticks and queued background jobs. */
+  const forget = useCallback((ids: string[]) => {
+    if (ids.length === 0) return;
+    const gone = new Set(ids);
+    for (const id of ids) {
+      forgotten.current.add(id);
+      handled.current.delete(id);
+    }
+    queue.current = queue.current.filter((j) => !gone.has(j.incident._id));
+    setPlans((prev) => omitKeys(prev, gone));
+    setTicks((prev) => omitKeys(prev, gone));
+  }, []);
+
+  return { plans, generate, prefetch, ticks, toggleTick, forget, setLocationsRef: (m: Map<string, IncidentLocation>) => { locationsRef.current = m; } };
 }

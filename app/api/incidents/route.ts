@@ -78,3 +78,49 @@ export async function GET(request: Request) {
     );
   }
 }
+
+/**
+ * Bulk delete (incidents only; medical profiles are never touched).
+ * - ?status=RESOLVED: every resolved incident.
+ * - ?status=ALL&confirm=DELETE-ALL: every incident (demo reset).
+ * Only GET handlers are prerendered under Cache Components, so this always runs per request.
+ */
+export async function DELETE(request: Request) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const status = searchParams.get("status");
+
+    if (status !== "RESOLVED" && status !== "ALL") {
+      return NextResponse.json(
+        { error: "status query parameter must be RESOLVED or ALL" },
+        { status: 400 },
+      );
+    }
+    if (status === "ALL" && searchParams.get("confirm") !== "DELETE-ALL") {
+      return NextResponse.json(
+        { error: "status=ALL requires confirm=DELETE-ALL" },
+        { status: 400 },
+      );
+    }
+
+    await connectToDatabase();
+
+    const result = await ActiveIncident.deleteMany(
+      status === "RESOLVED" ? { status: "RESOLVED" } : {},
+    );
+    console.log(
+      `[incidents] bulk DELETE status=${status}: ${result.deletedCount} removed`,
+    );
+
+    return NextResponse.json(
+      { deletedCount: result.deletedCount },
+      { status: 200 },
+    );
+  } catch (error) {
+    console.error("[incidents] DELETE unexpected error:", error);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 },
+    );
+  }
+}

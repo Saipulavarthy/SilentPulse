@@ -12,6 +12,7 @@ import {
   type LocationEstimate,
   type RankedBuilding,
 } from './locationEstimate';
+import { omitKeys } from './useResponsePlans';
 
 type Stable = { estimate: LocationEstimate };
 
@@ -114,5 +115,11 @@ export function useIncidentLocations(incidents: Incident[], nowMs: number | null
     });
   }, []);
 
-  return { locations, confirmBuilding, clearConfirmed };
+  /** Deleted incidents: drop their confirmed buildings. */
+  const forget = useCallback((ids: string[]) => {
+    const gone = new Set(ids);
+    setConfirmedById((prev) => omitKeys(prev, gone));
+  }, []);
+
+  return { locations, confirmBuilding, clearConfirmed, forget };
 }

@@ -1,13 +1,129 @@
+'use client';
+
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { severityTier, type Incident } from '@/types/incident';
 import { TIERS, TIER_STYLES } from './severity';
-import { LABEL, MONO } from './ui';
+import { ActionButton } from './StatusActions';
+import { FOCUS_RING, LABEL, MONO } from './ui';
 import type { FeedSync } from './useIncidentFeed';
 
 type Props = {
   incidents: Incident[];
   now: number | null;
   sync: FeedSync;
+  /** Deletes every incident (open and acknowledged included). */
+  onResetDemo: () => void;
 };
+
+const RESET_WORD = 'DELETE';
+/** The right-hand cluster is mono; the menu reads as prose. */
+const SANS = 'font-[family-name:var(--font-plex-sans)]';
+
+/**
+ * Overflow menu with "Reset demo". The only bulk delete that reaches open and acknowledged
+ * incidents, so it needs DELETE typed before the confirm button enables.
+ */
+function OverflowMenu({ total, onResetDemo }: { total: number; onResetDemo: () => void }) {
+  const [step, setStep] = useState<'closed' | 'menu' | 'confirm'>('closed');
+  const [typed, setTyped] = useState('');
+  const root = useRef<HTMLDivElement>(null);
+  const close = () => {
+    setStep('closed');
+    setTyped('');
+  };
+
+  // Click outside closes.
+  useEffect(() => {
+    if (step === 'closed') return;
+    const onDown = (e: MouseEvent) => {
+      if (!root.current?.contains(e.target as Node)) {
+        setStep('closed');
+        setTyped('');
+      }
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [step]);
+
+  const armed = typed === RESET_WORD;
+  function submit(e?: FormEvent) {
+    e?.preventDefault();
+    if (!armed) return;
+    close();
+    onResetDemo();
+  }
+
+  return (
+    <div
+      ref={root}
+      className="relative"
+      onKeyDown={(e) => {
+        // Esc closes the menu only (stopPropagation keeps the page from also leaving full screen).
+        if (e.key === 'Escape' && step !== 'closed') {
+          e.stopPropagation();
+          close();
+        }
+      }}
+    >
+      <button
+        type="button"
+        aria-label="More actions"
+        aria-haspopup="menu"
+        aria-expanded={step !== 'closed'}
+        onClick={() => (step === 'closed' ? setStep('menu') : close())}
+        className={`h-6 rounded-[2px] border border-neutral-700 px-1.5 leading-none text-neutral-300 hover:bg-neutral-800 ${FOCUS_RING}`}
+      >
+        ···
+      </button>
+      {step === 'menu' && (
+        <div role="menu" className={`absolute top-8 right-0 z-50 w-[260px] rounded-[2px] border border-neutral-700 bg-neutral-950 py-1 ${SANS}`}>
+          <button
+            type="button"
+            role="menuitem"
+            autoFocus
+            onClick={() => setStep('confirm')}
+            className={`block w-full px-3 py-1.5 text-left text-[12px] text-red-200 hover:bg-red-950/60 ${FOCUS_RING}`}
+          >
+            Reset demo: delete ALL incidents
+          </button>
+        </div>
+      )}
+      {step === 'confirm' && (
+        <form
+          onSubmit={submit}
+          role="alertdialog"
+          aria-label="Confirm reset demo"
+          className={`absolute top-8 right-0 z-50 w-[320px] space-y-2 rounded-[2px] border border-red-900 bg-neutral-950 p-3 ${SANS} text-[13px]`}
+        >
+          <p className="text-neutral-100">
+            Permanently delete every incident, including open and acknowledged ones ({total} on screen). This cannot be undone.
+            Medical profiles are kept.
+          </p>
+          <label className="block text-[12px] text-neutral-400">
+            Type <span className={`${MONO} text-neutral-100`}>{RESET_WORD}</span> to confirm
+            <input
+              autoFocus
+              value={typed}
+              onChange={(e) => setTyped(e.target.value)}
+              autoComplete="off"
+              spellCheck={false}
+              aria-label={`Type ${RESET_WORD} to confirm`}
+              className={`mt-1 block h-7 w-full rounded-[2px] border border-neutral-700 bg-neutral-900 px-2 ${MONO} text-[12px] text-neutral-100 ${FOCUS_RING}`}
+            />
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            <ActionButton onClick={() => submit()} shortcut="Enter" compact tone="danger" disabled={!armed}>
+              Delete all
+            </ActionButton>
+            <ActionButton onClick={close} shortcut="Esc" compact>
+              Cancel
+            </ActionButton>
+          </div>
+        </form>
+      )}
+    </div>
+  );
+}
 
 const pad = (n: number) => String(n).padStart(2, '0');
 const DAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
@@ -46,7 +162,7 @@ function SyncStatus({ sync, now }: { sync: FeedSync; now: number | null }) {
   }
 }
 
-export function TopBar({ incidents, now, sync }: Props) {
+export function TopBar({ incidents, now, sync, onResetDemo }: Props) {
   const counts = Object.fromEntries(TIERS.map((t) => [t, 0])) as Record<(typeof TIERS)[number], number>;
   for (const i of incidents) if (i.status === 'ACTIVE') counts[severityTier(i.severityScore)]++;
   const d = now === null ? null : new Date(now);
@@ -78,6 +194,7 @@ export function TopBar({ incidents, now, sync }: Props) {
         <time className="w-[8ch] text-right text-[13px] text-neutral-100">
           {d ? `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}` : '--:--:--'}
         </time>
+        <OverflowMenu total={incidents.length} onResetDemo={onResetDemo} />
       </div>
     </header>
   );
