@@ -100,7 +100,11 @@ npm run dev
 - Dispatch: [http://localhost:3000/dispatch](http://localhost:3000/dispatch)  
   Use `?mock=1` for fixture incidents without Atlas.
 
-### 4. Seed demo ICE
+### 4. Domain
+- Phone: www.silentpulse.health
+- Dispatch: www.silentpulse.health/dispatch
+
+### 5. Seed demo ICE
 
 ```bash
 curl -X POST http://localhost:3000/api/seed \
@@ -109,7 +113,7 @@ curl -X POST http://localhost:3000/api/seed \
 
 Seeds `user_demo_01` (Jordan Rivera — asthma, Type 1 diabetes, etc.).
 
-### 5. Useful scripts
+### 6. Useful scripts
 
 ```bash
 # Resolve which UMass building contains a GPS point
