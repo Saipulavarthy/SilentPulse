@@ -13,8 +13,8 @@ import {
 
 export const GEMINI_TIMEOUT_MS = 20_000;
 
-/** Same env override as /api/response-plan; free-tier 2.5-flash quotas burn fast. */
-const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
+/** Same env override as /api/response-plan (`GEMINI_MODEL`). */
+const DEFAULT_GEMINI_MODEL = "gemini-3.8-flash";
 
 const PERCEPTION_TYPES = [
   "ENVIRONMENTAL_HAZARD",
