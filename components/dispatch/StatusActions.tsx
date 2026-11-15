@@ -33,7 +33,8 @@ export function phoneStillSending(i: Pick<Incident, 'sessionId' | 'lastSeenAt'>,
 }
 
 export type PendingConfirm =
-  | { kind: 'resolve' }
+  /** offerAllClear: an alert call went to the emergency contact, so offer the all-clear. */
+  | { kind: 'resolve'; offerAllClear?: boolean }
   | { kind: 'reopen'; minutes: number }
   | { kind: 'delete'; stillSending: boolean };
 
@@ -47,6 +48,9 @@ export type StatusActionHandlers = {
   confirming: PendingConfirm | null;
   onConfirm: () => void;
   onCancelConfirm: () => void;
+  /** "Also call the contact with the all-clear?" ticked (resolve confirmation only). */
+  allClearOptIn: boolean;
+  onToggleAllClear: () => void;
 };
 
 /** Status buttons for the detail panel and the full-screen card, with Delete set apart below. */
@@ -59,6 +63,8 @@ export function StatusActions({ incident, compact = false, ...h }: StatusActionH
         compact={compact}
         onConfirm={h.onConfirm}
         onCancelConfirm={h.onCancelConfirm}
+        allClearOptIn={h.allClearOptIn}
+        onToggleAllClear={h.onToggleAllClear}
       />
     );
   }
@@ -103,12 +109,16 @@ function ConfirmPrompt({
   compact,
   onConfirm,
   onCancelConfirm,
+  allClearOptIn,
+  onToggleAllClear,
 }: {
   incident: Incident;
   confirming: PendingConfirm;
   compact: boolean;
   onConfirm: () => void;
   onCancelConfirm: () => void;
+  allClearOptIn: boolean;
+  onToggleAllClear: () => void;
 }) {
   const label = confirming.kind === 'delete' ? 'Confirm delete' : confirming.kind === 'reopen' ? 'Confirm reopen' : 'Confirm resolve';
   let message: ReactNode;
@@ -133,10 +143,19 @@ function ConfirmPrompt({
   } else {
     const why = [incident.escalated && 'signal lost', incident.trend === 'worsening' && 'worsening'].filter(Boolean).join(' · ');
     message = (
-      <p className="text-neutral-100">
-        Resolve a severity {incident.severityScore} incident?
-        {why && <span className={`ml-2 ${MONO} text-[11px] text-neutral-400`}>{why}</span>}
-      </p>
+      <>
+        <p className="text-neutral-100">
+          Resolve a severity {incident.severityScore} incident?
+          {why && <span className={`ml-2 ${MONO} text-[11px] text-neutral-400`}>{why}</span>}
+        </p>
+        {confirming.offerAllClear && (
+          <label className="flex cursor-pointer items-center gap-2 text-[12px] text-neutral-200">
+            <input type="checkbox" checked={allClearOptIn} onChange={onToggleAllClear} className="accent-sky-400" />
+            Also call the contact with the all-clear?
+            <span className="text-neutral-500">(you review the script first)</span>
+          </label>
+        )}
+      </>
     );
   }
   return (
@@ -201,15 +220,17 @@ export function ActionButton({
         e.stopPropagation();
         onClick();
       }}
-      aria-keyshortcuts={shortcut}
+      aria-keyshortcuts={shortcut || undefined}
       className={`flex w-full items-center justify-between rounded-[2px] border px-3 disabled:cursor-not-allowed disabled:opacity-40 ${colors} ${
         compact ? 'h-7 text-[12px]' : 'h-8'
       } ${FOCUS_RING}`}
     >
       <span>{children}</span>
-      <kbd className={`${MONO} rounded-[2px] border border-current/30 px-1 text-[11px] ${tone === 'danger' ? 'text-red-300/70' : 'text-neutral-500'}`}>
-        {shortcut}
-      </kbd>
+      {shortcut && (
+        <kbd className={`${MONO} rounded-[2px] border border-current/30 px-1 text-[11px] ${tone === 'danger' ? 'text-red-300/70' : 'text-neutral-500'}`}>
+          {shortcut}
+        </kbd>
+      )}
     </button>
   );
 }

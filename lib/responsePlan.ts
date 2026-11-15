@@ -190,6 +190,8 @@ function timelineFacts(incident: PlanIncident, now: number) {
 export type PlanFactsOpts = {
   buildingsInRange?: PlanBuilding[];
   locationConfidence?: PlanLocationConfidence;
+  /** The dispatcher already phoned the caller's emergency contact. */
+  contactNotified?: boolean;
 };
 
 export function planFacts(
@@ -253,6 +255,7 @@ export function planFacts(
         }))
       : undefined,
     mustAskBuilding: multi ? 'which of the buildings in range the caller is in' : undefined,
+    contactNotified: opts.contactNotified ? "the dispatcher has already phoned the caller's emergency contact" : undefined,
   });
 }
 

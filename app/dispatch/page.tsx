@@ -2,6 +2,7 @@
 
 import { useEffect, useEffectEvent, useMemo, useState } from 'react';
 import type { IncidentStatus } from '@/types/incident';
+import { EmergencyContactSection, contactStatusLine } from '@/components/dispatch/EmergencyContactSection';
 import { FloatingDetail, FloatingQueue } from '@/components/dispatch/FloatingPanels';
 import { IncidentDetail } from '@/components/dispatch/IncidentDetail';
 import {
@@ -18,6 +19,8 @@ import { FILTERS, applyFilter, type QueueFilter } from '@/components/dispatch/se
 import { useClock } from '@/components/dispatch/useClock';
 import { useIncidentFeed } from '@/components/dispatch/useIncidentFeed';
 import { useIncidentLocations } from '@/components/dispatch/useIncidentLocations';
+import { callBlockReason, nextCallKind, useContactCalls } from '@/components/dispatch/useContactCalls';
+import { alertWasPlaced, latestCall } from '@/lib/contactCall';
 import type { CopyState } from '@/components/dispatch/ResponsePlanSection';
 import { planContext, useResponsePlans } from '@/components/dispatch/useResponsePlans';
 import { MONO } from '@/components/dispatch/ui';
@@ -25,6 +28,7 @@ import { MONO } from '@/components/dispatch/ui';
 export default function DispatchPage() {
   // Live /api/incidents every 2 s, or mock data at ?mock=1 only.
   const {
+    mode,
     incidents,
     sync,
     setStatus: saveStatus,
@@ -57,6 +61,24 @@ export default function DispatchPage() {
   const { locations, confirmBuilding, clearConfirmed, forget: forgetLocations } = useIncidentLocations(incidents, now);
   const { plans, generate, prefetch, ticks, toggleTick, forget: forgetPlans } = useResponsePlans();
   const [copied, setCopied] = useState<{ id: string; state: CopyState } | null>(null);
+  const contact = useContactCalls(mode, incidents, selectedId);
+  /** "Also call the contact with the all-clear?" in the resolve confirmation. Off by default. */
+  const [allClearOptIn, setAllClearOptIn] = useState(false);
+
+  /** A building name the call script may use: only a confirmed one or the single one in range. */
+  function certainBuilding(id: string): string | null {
+    const loc = locations.get(id);
+    return loc && (loc.confidence === 'confirmed' || loc.confidence === 'single') ? (loc.shown[0]?.name ?? null) : null;
+  }
+
+  /** Shift+C: opens the review for the next call. "Call again" goes through its own confirmation. */
+  function callContact() {
+    if (!selected) return;
+    const calls = contact.callsFor(selected);
+    const kind = nextCallKind(selected, calls);
+    if (latestCall(calls, kind) || callBlockReason(selected, contact.availabilityFor(selected._id), calls, kind)) return;
+    void contact.openReview(selected, kind, certainBuilding(selected._id));
+  }
 
   /** Copies the selected incident's radio brief (button or C). */
   async function copyBrief() {
@@ -109,9 +131,9 @@ export default function DispatchPage() {
   }
 
   /** Optimistic status change; if the incident leaves the current view, select the row that took its place. */
-  function changeStatus(id: string, status: IncidentStatus, verb: string) {
+  function changeStatus(id: string, status: IncidentStatus, verb: string): Promise<boolean> {
     const target = incidents.find((i) => i._id === id);
-    if (!target || target.status === status) return;
+    if (!target || target.status === status) return Promise.resolve(false);
     setConfirm(null);
     if (id === selectedId) {
       const nextVisible = applyFilter(
@@ -123,7 +145,7 @@ export default function DispatchPage() {
         setPickedId(nextVisible[Math.min(Math.max(idx, 0), nextVisible.length - 1)]._id);
       }
     }
-    void saveStatus(id, status, verb);
+    return saveStatus(id, status, verb);
   }
 
   const acknowledge = () => selected?.status === 'ACTIVE' && changeStatus(selected._id, 'ACKNOWLEDGED', 'acknowledge');
@@ -136,22 +158,40 @@ export default function DispatchPage() {
     const target = incidents.find((i) => i._id === id);
     if (target?.status !== 'RESOLVED') return;
     const minutes = staleReopenMinutes(target, Date.now());
-    if (minutes === null) return changeStatus(target._id, 'ACTIVE', 'reopen');
+    if (minutes === null) return void changeStatus(target._id, 'ACTIVE', 'reopen');
     setPickedId(target._id); // the prompt shows in this incident's panel
     setConfirm({ id: target._id, kind: 'reopen', minutes });
   };
-  /** Severity ≥ 7, worsening or signal lost: ask first. Otherwise resolve at once. */
+  /**
+   * Severity ≥ 7, worsening or signal lost: ask first. Also ask when the emergency contact got an
+   * alert call, to offer the all-clear call. Otherwise resolve at once.
+   */
   const resolve = () => {
     if (!selected || selected.status === 'RESOLVED') return;
-    if (resolveNeedsConfirm(selected) && confirm?.id !== selected._id) setConfirm({ id: selected._id, kind: 'resolve' });
-    else changeStatus(selected._id, 'RESOLVED', 'resolve');
+    const calls = contact.callsFor(selected);
+    const offerAllClear = alertWasPlaced(calls) && !latestCall(calls, 'allClear');
+    if ((resolveNeedsConfirm(selected) || offerAllClear) && confirm?.id !== selected._id) {
+      setAllClearOptIn(false);
+      setConfirm({ id: selected._id, kind: 'resolve', offerAllClear });
+    } else void changeStatus(selected._id, 'RESOLVED', 'resolve');
   };
   const confirming: PendingConfirm | null = selected && confirm?.id === selected._id ? confirm : null;
   const confirmPending = () => {
     if (!selected || !confirming) return;
     if (confirming.kind === 'delete') void deleteOne(selected._id);
-    else if (confirming.kind === 'reopen') changeStatus(selected._id, 'ACTIVE', 'reopen');
-    else changeStatus(selected._id, 'RESOLVED', 'resolve');
+    else if (confirming.kind === 'reopen') void changeStatus(selected._id, 'ACTIVE', 'reopen');
+    else {
+      const target = selected;
+      const saved = changeStatus(target._id, 'RESOLVED', 'resolve');
+      // All-clear opted in: keep this incident selected and open its review once the resolve is saved.
+      // Nothing is sent until the dispatcher presses "Place call".
+      if (confirming.offerAllClear && allClearOptIn) {
+        setPickedId(target._id);
+        void saved.then((ok) => {
+          if (ok) void contact.openReview({ ...target, status: 'RESOLVED' }, 'allClear', certainBuilding(target._id));
+        });
+      }
+    }
   };
 
   /** Delete always asks, at any severity (button or Shift+D). */
@@ -165,6 +205,7 @@ export default function DispatchPage() {
   function forgetIncidents(ids: string[]) {
     forgetPlans(ids);
     forgetLocations(ids);
+    contact.forget(ids);
     setCopied((c) => (c && ids.includes(c.id) ? null : c));
   }
 
@@ -200,6 +241,8 @@ export default function DispatchPage() {
     confirming,
     onConfirm: confirmPending,
     onCancelConfirm: () => setConfirm(null),
+    allClearOptIn,
+    onToggleAllClear: () => setAllClearOptIn((v) => !v),
   };
 
   function select(id: string) {
@@ -215,6 +258,12 @@ export default function DispatchPage() {
     // Leave the map's own arrow-key panning alone when it has focus.
     if (key.startsWith('arrow') && target?.closest('.maplibregl-map')) return;
 
+    // An open call review: Esc cancels it (Enter never places a call).
+    if (contact.review && key === 'escape') {
+      e.preventDefault();
+      contact.cancelReview();
+      return;
+    }
     // An open confirmation takes Enter and Esc first.
     if (bulkConfirming && (key === 'enter' || key === 'escape')) {
       e.preventDefault();
@@ -229,6 +278,12 @@ export default function DispatchPage() {
       return;
     }
 
+    // Call the emergency contact: Shift+C (a plain C copies the radio brief).
+    if (e.shiftKey && key === 'c') {
+      e.preventDefault();
+      callContact();
+      return;
+    }
     // Delete is Shift+D only; a plain D does nothing.
     if (e.shiftKey && key === 'd') {
       e.preventDefault();
@@ -343,6 +398,7 @@ export default function DispatchPage() {
             onToggle={() => setFloatCollapsed((c) => ({ ...c, detail: !c.detail }))}
             actions={actions}
             location={selected ? locations.get(selected._id) : undefined}
+            contactLine={selected ? contactStatusLine(contact.callsFor(selected)) : null}
           />
         ) : (
           <IncidentDetail
@@ -361,6 +417,23 @@ export default function DispatchPage() {
             onConfirmBuilding={(osmId) => selected && confirmBuilding(selected._id, osmId)}
             onClearConfirmedBuilding={() => selected && clearConfirmed(selected._id)}
             onFlyToBuilding={(lng, lat) => setMapFocus({ lng, lat, token: Date.now() })}
+            contactSection={
+              selected && (
+                <EmergencyContactSection
+                  incident={selected}
+                  calls={contact.callsFor(selected)}
+                  availability={contact.availabilityFor(selected._id)}
+                  review={contact.review?.incidentId === selected._id ? contact.review : null}
+                  simulated={contact.simulated}
+                  onOpenReview={(force) =>
+                    void contact.openReview(selected, nextCallKind(selected, contact.callsFor(selected)), certainBuilding(selected._id), force)
+                  }
+                  onEditScript={contact.editScript}
+                  onPlace={() => void contact.place(selected)}
+                  onCancel={contact.cancelReview}
+                />
+              )
+            }
           />
         )}
       </main>

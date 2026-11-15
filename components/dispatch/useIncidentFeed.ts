@@ -109,11 +109,11 @@ export function useIncidentFeed() {
 
   const { mutate } = swr;
   const setStatus = useCallback(
-    async (id: string, status: IncidentStatus, verb?: string) => {
+    async (id: string, status: IncidentStatus, verb?: string): Promise<boolean> => {
       setMutationError(null);
       if (mode === 'mock') {
         setMockList((list) => withStatus(list, id, status));
-        return;
+        return true;
       }
       try {
         await mutate(
@@ -135,9 +135,11 @@ export function useIncidentFeed() {
             revalidate: false,
           },
         );
+        return true;
       } catch (e) {
         const action = verb ?? (status === 'ACKNOWLEDGED' ? 'acknowledge' : status === 'RESOLVED' ? 'resolve' : 'update');
         setMutationError(`Could not ${action} ${incidentNumber(id)}: ${e instanceof Error ? e.message : String(e)}. Change rolled back.`);
+        return false;
       }
     },
     [mode, mutate],

@@ -34,6 +34,8 @@ type Props = {
   onConfirmBuilding: (osmId: string) => void;
   onClearConfirmedBuilding: () => void;
   onFlyToBuilding: (lng: number, lat: number) => void;
+  /** The "Emergency contact" section (calls to the caller's emergency contact). */
+  contactSection?: ReactNode;
 };
 
 const TREND_LABEL: Record<Trend, string> = { new: 'New', worsening: '▲ Worsening', stable: '▬ Stable', improving: '▼ Improving' };
@@ -60,6 +62,7 @@ export function IncidentDetail({
   onConfirmBuilding,
   onClearConfirmedBuilding,
   onFlyToBuilding,
+  contactSection,
 }: Props) {
   if (!incident) {
     return (
@@ -124,6 +127,8 @@ export function IncidentDetail({
           onSend={onSendCallerMessage}
           onClear={onClearCallerMessage}
         />
+
+        {contactSection}
 
         <ResponsePlanSection
           incident={incident}

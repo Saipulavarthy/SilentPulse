@@ -1,7 +1,9 @@
 'use client';
 
 import { useCallback, useRef, useState } from 'react';
+import { alertWasPlaced } from '@/lib/contactCall';
 import { ruleBasedPlan } from '@/lib/responsePlan';
+import type { ContactCall } from '@/types/contactCall';
 import type { Incident } from '@/types/incident';
 import type {
   OtherCaller,
@@ -216,6 +218,8 @@ export function useResponsePlans() {
             buildingsInRange: context.buildingsInRange,
             locationConfidence: context.locationConfidence,
             otherCallers: context.otherCallers,
+            // The caller's emergency contact has already been phoned: don't suggest notifying next of kin.
+            contactNotified: alertWasPlaced((incident as { contactCalls?: ContactCall[] }).contactCalls),
           }),
         });
         const body = (await res.json()) as PlanResponse;

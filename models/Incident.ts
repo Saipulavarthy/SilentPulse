@@ -93,6 +93,22 @@ const DispatcherMessageSchema = new Schema(
   { _id: false },
 );
 
+/** One dispatcher-triggered call to the emergency contact. `to` is the last 4 digits only. */
+const ContactCallSchema = new Schema(
+  {
+    kind: { type: String, enum: ["alert", "allClear"], required: true },
+    status: { type: String, required: true },
+    to: { type: String, required: true },
+    script: { type: String, required: true },
+    spoken: { type: String, enum: ["script", "trialTemplate"] },
+    callSid: { type: String, default: "" },
+    requestedAt: { type: Date, required: true },
+    updatedAt: { type: Date, required: true },
+    answeredAt: { type: Date },
+  },
+  { _id: false },
+);
+
 const ActiveIncidentSchema = new Schema(
   {
     userId: { type: String, required: true, index: true },
@@ -139,6 +155,8 @@ const ActiveIncidentSchema = new Schema(
     userProvidedContext: { type: String, default: null },
     /** Live text from the dispatcher shown on the caller's phone. */
     dispatcherMessage: { type: DispatcherMessageSchema, default: null },
+    /** Calls to the emergency contact; absent until the first one. */
+    contactCalls: { type: [ContactCallSchema], default: undefined },
     status: {
       type: String,
       enum: INCIDENT_STATUSES,
