@@ -80,8 +80,12 @@ const CONTACT = new RegExp(
   'i',
 );
 const NEGATED = /\b(do\s+not|don'?t|not|never|avoid|without|no)\b/i;
+/** Silent on-screen dispatcher → phone messages are allowed even in stealth mode. */
+const SILENT_CHANNEL =
+  /\bsilent(\s+on-?screen)?\s+messages?\b|\bon-?screen\s+messages?\b|\bdispatcher\s+messages?\b|\bmessage\s+to\s+caller\b/i;
 /** Suggests contacting a caller in stealth mode, and is not a prohibition ("Do not call back"). */
-const contactsCaller = (s: string) => CONTACT.test(s) && !NEGATED.test(s);
+const contactsCaller = (s: string) =>
+  CONTACT.test(s) && !NEGATED.test(s) && !SILENT_CHANNEL.test(s);
 
 /** Advice that fits any incident of the type, which the dispatcher already knows. */
 const GENERIC =
@@ -179,14 +183,22 @@ export function planFacts(incident: PlanIncident, building: PlanBuilding | null,
     severityTier: severityTier(incident.severityScore),
     status: incident.status,
     sceneStatus,
-    callerDevice: isStealth(incident) ? 'stealth mode: no calls, texts or audible/visible alerts' : undefined,
+    callerDevice: isStealth(incident)
+      ? 'stealth mode: silent on-screen dispatcher messages only; do not call, ring, vibrate or flash the phone'
+      : undefined,
     building: building ? prune({ name: building.name, type: building.type, floors: building.floors }) : undefined,
     callersInBuilding: building ? 1 + otherCallers.length : undefined,
     gpsAccuracyMetres: incident.gps?.accuracy,
     // ---- sources ----
     buildingNotes: building?.notes,
     callerProfile: callerProfile(incident),
-    perception: prune({ sceneSummary: incident.sceneSummary, cues: incident.cues }),
+    perception: prune({
+      sceneSummary: incident.sceneSummary,
+      cues: incident.cues,
+      ...(incident.userProvidedContext
+        ? { callerSelected: incident.userProvidedContext }
+        : {}),
+    }),
     triage: prune({ dispatcherBrief: incident.dispatcherBrief, reasons: incident.reasons }),
     timeline: timelineFacts(incident, now),
     otherCallers: otherCallers.length
@@ -354,7 +366,7 @@ export function ruleBasedPlan(incident: PlanIncident, building: PlanBuilding | n
     callers > 1 ? `, ${callers} callers` : ''
   }.`;
   const second = isStealth(incident)
-    ? 'Caller is hiding with the phone in stealth mode; do not call back.'
+    ? 'Caller is hiding with the phone in stealth mode; do not call back. Silent messages only.'
     : unverified
       ? 'Scene unverified: no image or audio received.'
       : incident.escalated

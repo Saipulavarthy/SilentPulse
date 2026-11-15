@@ -35,8 +35,18 @@ const basisKey = (i: Pick<Incident, 'severityScore' | 'crisisType' | 'escalated'
   `${i.severityScore}|${i.crisisType}|${i.escalated ? 'lost' : ''}`;
 
 /** Everything the plan was drawn from: a change in any of it marks the plan out of date. */
-export function planBasis(i: Pick<Incident, 'severityScore' | 'crisisType' | 'escalated' | 'trend' | 'cues' | 'reasons'>): string {
-  return JSON.stringify([i.severityScore, i.crisisType, Boolean(i.escalated), i.trend ?? null, i.cues ?? [], i.reasons ?? []]);
+export function planBasis(
+  i: Pick<Incident, 'severityScore' | 'crisisType' | 'escalated' | 'trend' | 'cues' | 'reasons' | 'userProvidedContext'>,
+): string {
+  return JSON.stringify([
+    i.severityScore,
+    i.crisisType,
+    Boolean(i.escalated),
+    i.trend ?? null,
+    i.cues ?? [],
+    i.reasons ?? [],
+    i.userProvidedContext ?? null,
+  ]);
 }
 
 /**

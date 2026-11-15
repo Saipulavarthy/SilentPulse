@@ -81,6 +81,8 @@ export type PlanIncident = {
   lastSeenAt?: string;
   updateCount?: number;
   timeline?: PlanTimelineEntry[];
+  /** Victim quick-action selection from the phone crisis UI. */
+  userProvidedContext?: string;
   createdAt: string;
   updatedAt: string;
 };

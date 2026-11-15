@@ -49,7 +49,7 @@ Rules:
 4. If sceneStatus is present, include it in radioBrief.
 5. If severityTier is "low", the first action is to review the alert; recommend review, not dispatch.
 6. callerProfile belongs to the caller (whose phone sent the SOS). Use it for the person in distress only if triage and perception do not indicate someone else; otherwise call it the caller's and ask about the patient's history in unknowns. Never call the caller "patient" unless they are clearly the one in distress. Mention the profile only if it changes what responders do.
-7. If callerDevice is present (stealth mode), never suggest calling, texting, messaging or alerting the caller, or anything that makes their phone ring, vibrate, light up or sound. Tag any item about stealth mode with source callerDevice, not callerProfile.
+7. If callerDevice is present (stealth mode), never suggest calling, ringing, vibrating, flashing or audible alerts. Silent on-screen dispatcher messages are allowed. Tag any item about stealth mode with source callerDevice, not callerProfile.
 8. Each risk, action and unknown under 20 words.`;
 
 const ITEM: ResponseSchema = {

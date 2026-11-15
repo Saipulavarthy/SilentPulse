@@ -60,6 +60,12 @@ type LeanIncident = {
   simulated?: boolean | null;
   victimInstructions?: string | string[] | null;
   status: Incident["status"] | string;
+  dispatcherMessage?: {
+    text?: string | null;
+    sentAt?: Date | string | null;
+    seenAt?: Date | string | null;
+  } | null;
+  userProvidedContext?: string | null;
   lastSeenAt?: Date | string | null;
   escalated?: boolean | null;
   escalationReason?: string | null;
@@ -175,6 +181,20 @@ export function serializeIncident(doc: LeanIncident): Incident {
     ),
     status,
     dispatcherStatus: statusToDispatcherStatus(status),
+    ...(doc.dispatcherMessage?.text && doc.dispatcherMessage.sentAt
+      ? {
+          dispatcherMessage: {
+            text: doc.dispatcherMessage.text,
+            sentAt: toIso(doc.dispatcherMessage.sentAt),
+            ...(doc.dispatcherMessage.seenAt
+              ? { seenAt: toIso(doc.dispatcherMessage.seenAt) }
+              : {}),
+          },
+        }
+      : {}),
+    ...(doc.userProvidedContext
+      ? { userProvidedContext: doc.userProvidedContext }
+      : {}),
     ...(doc.lastSeenAt ? { lastSeenAt: toIso(doc.lastSeenAt) } : {}),
     escalated: Boolean(doc.escalated),
     ...(doc.escalationReason

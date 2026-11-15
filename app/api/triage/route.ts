@@ -136,6 +136,12 @@ function triageJsonResponse(serialized: ReturnType<typeof serializeIncident>) {
       updateCount: serialized.updateCount,
       timeline: serialized.timeline,
       lastSeenAt: serialized.lastSeenAt,
+      ...(serialized.dispatcherMessage
+        ? { dispatcherMessage: serialized.dispatcherMessage }
+        : {}),
+      ...(serialized.userProvidedContext
+        ? { userProvidedContext: serialized.userProvidedContext }
+        : {}),
       incident: serialized,
     },
     { status: 200 },
