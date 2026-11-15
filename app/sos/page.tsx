@@ -35,12 +35,19 @@ type IceProfile = {
   sensoryNotes: string;
 };
 
-type GpsCoords = { lat: number; lng: number };
+type GpsCoords = {
+  lat: number;
+  lng: number;
+  accuracy?: number;
+  altitude?: number;
+};
+
+type LastKnownGps = GpsCoords & { at: number };
 
 type SosPayload = {
   image: string;
   audio: string;
-  gps: GpsCoords;
+  gps: GpsCoords | null;
   iceProfile: IceProfile | null;
   sessionId: string;
 };
@@ -49,11 +56,12 @@ const ICE_STORAGE_KEY = "silentpulse_ice_profile";
 const LOCATION_PERMISSION_KEY = "silentpulse_location_permission";
 const MEDIA_PERMISSION_KEY = "silentpulse_media_permission";
 
-/** UMass Amherst fallback for local testing when GPS is denied/unavailable */
-const FALLBACK_GPS: GpsCoords = {
-  lat: 42.3868,
-  lng: -72.5301,
-};
+/** Prefer a cached high-accuracy fix newer than this when a fresh read fails. */
+const GPS_FRESH_MS = 30_000;
+/** Only trust a fix for triage / building match within this radius (metres). */
+const GPS_MAX_ACCURACY_M = 50;
+/** Budget for a high-accuracy getCurrentPosition during capture. */
+const GPS_FIX_TIMEOUT_MS = 15_000;
 
 const LOADING_STATUSES = [
   "Getting your location…",
@@ -112,9 +120,46 @@ function blobToBase64(blob: Blob): Promise<string> {
   });
 }
 
+function coordsFromPosition(position: GeolocationPosition): GpsCoords {
+  return {
+    lat: position.coords.latitude,
+    lng: position.coords.longitude,
+    ...(typeof position.coords.accuracy === "number"
+      ? { accuracy: position.coords.accuracy }
+      : {}),
+    ...(typeof position.coords.altitude === "number" &&
+    position.coords.altitude !== null
+      ? { altitude: position.coords.altitude }
+      : {}),
+  };
+}
+
+/** True when the fix is precise enough to trust for building matching. */
+function isPreciseGps(coords: GpsCoords | null | undefined): boolean {
+  if (!coords) return false;
+  if (!Number.isFinite(coords.lat) || !Number.isFinite(coords.lng)) return false;
+  // Require an accuracy reading — network fixes often omit a useful one or lie.
+  if (
+    typeof coords.accuracy !== "number" ||
+    !Number.isFinite(coords.accuracy) ||
+    coords.accuracy <= 0
+  ) {
+    return false;
+  }
+  return coords.accuracy <= GPS_MAX_ACCURACY_M;
+}
+
+function pickBetterGps(a: GpsCoords | null, b: GpsCoords | null): GpsCoords | null {
+  if (!a) return b;
+  if (!b) return a;
+  const aAcc = typeof a.accuracy === "number" ? a.accuracy : Number.POSITIVE_INFINITY;
+  const bAcc = typeof b.accuracy === "number" ? b.accuracy : Number.POSITIVE_INFINITY;
+  return aAcc <= bAcc ? a : b;
+}
+
 /**
- * Triggers the same kind of native browser permission prompt as getUserMedia
- * for camera/mic. Must be called from a user gesture (button click) for best results.
+ * Triggers the native location permission prompt from a user gesture.
+ * Uses high accuracy so phones get a real GNSS fix (not a coarse Wi-Fi guess).
  */
 function requestNativeLocationAccess(
   timeoutMs = 15000,
@@ -130,7 +175,6 @@ function requestNativeLocationAccess(
       return;
     }
 
-    // Network/Wi-Fi first — high-accuracy GPS often times out on laptops indoors.
     navigator.geolocation.getCurrentPosition(
       (position) => {
         try {
@@ -138,13 +182,7 @@ function requestNativeLocationAccess(
         } catch {
           /* ignore */
         }
-        resolve({
-          ok: true,
-          coords: {
-            lat: position.coords.latitude,
-            lng: position.coords.longitude,
-          },
-        });
+        resolve({ ok: true, coords: coordsFromPosition(position) });
       },
       (error) => {
         console.warn("Native location permission/request failed:", {
@@ -152,8 +190,6 @@ function requestNativeLocationAccess(
           message: error.message,
         });
         try {
-          // Only mark denied when the user/browser blocked permission.
-          // TIMEOUT / POSITION_UNAVAILABLE often still mean permission was allowed.
           localStorage.setItem(
             LOCATION_PERMISSION_KEY,
             error.code === error.PERMISSION_DENIED ? "denied" : "granted",
@@ -163,23 +199,101 @@ function requestNativeLocationAccess(
         }
         resolve({ ok: false, coords: null, errorCode: error.code });
       },
-      { enableHighAccuracy: false, timeout: timeoutMs, maximumAge: 60000 },
+      {
+        enableHighAccuracy: true,
+        timeout: timeoutMs,
+        // Never reuse a minute-old Wi-Fi estimate for permission seeding.
+        maximumAge: 0,
+      },
     );
   });
 }
 
-function getGpsCoordinates(timeoutMs = 10000): Promise<GpsCoords> {
+/**
+ * Resolve GPS for triage. Never invents campus coordinates.
+ * Forces a fresh high-accuracy read; only falls back to a precise recent watch fix.
+ */
+function resolveGpsForTriage(
+  lastKnown: LastKnownGps | null,
+  timeoutMs = GPS_FIX_TIMEOUT_MS,
+): Promise<GpsCoords | null> {
+  const cached =
+    lastKnown &&
+    Date.now() - lastKnown.at <= GPS_FRESH_MS &&
+    isPreciseGps(lastKnown)
+      ? {
+          lat: lastKnown.lat,
+          lng: lastKnown.lng,
+          accuracy: lastKnown.accuracy,
+          ...(typeof lastKnown.altitude === "number"
+            ? { altitude: lastKnown.altitude }
+            : {}),
+        }
+      : null;
+
+  if (!navigator.geolocation) {
+    if (cached) {
+      console.warn("Geolocation API missing — using last precise GPS", cached);
+      return Promise.resolve(cached);
+    }
+    console.warn("Geolocation unavailable — omitting GPS from triage");
+    return Promise.resolve(null);
+  }
+
   return new Promise((resolve) => {
-    void requestNativeLocationAccess(timeoutMs).then((result) => {
-      if (result.ok && result.coords) {
-        resolve(result.coords);
-        return;
+    let settled = false;
+
+    const finish = (coords: GpsCoords | null) => {
+      if (settled) return;
+      settled = true;
+      if (coords) {
+        console.log("[gps] triage fix", {
+          lat: coords.lat,
+          lng: coords.lng,
+          accuracy: coords.accuracy,
+        });
+      } else {
+        console.warn("[gps] no usable triage fix");
       }
-      console.warn(
-        "GPS unavailable after native permission prompt — using UMass Amherst fallback",
-      );
-      resolve(FALLBACK_GPS);
-    });
+      resolve(coords);
+    };
+
+    const timer = window.setTimeout(() => {
+      console.warn("[gps] high-accuracy read timed out");
+      finish(cached);
+    }, timeoutMs);
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        window.clearTimeout(timer);
+        const next = coordsFromPosition(position);
+        // Prefer the more precise of fresh read vs recent watch sample.
+        const best = pickBetterGps(next, cached);
+        if (best && isPreciseGps(best)) {
+          finish(best);
+          return;
+        }
+        // Still send the freshest reading if we have one — better than inventing coords.
+        // Building lookup may miss; sticky building handles empty GPS separately.
+        if (best && Number.isFinite(best.lat) && Number.isFinite(best.lng)) {
+          console.warn("[gps] fix outside precision budget — sending anyway", best);
+          finish(best);
+          return;
+        }
+        finish(null);
+      },
+      (err) => {
+        window.clearTimeout(timer);
+        console.warn("[gps] high-accuracy error", err);
+        finish(cached);
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: timeoutMs,
+        // Force a new reading — maximumAge reuse was returning stale Wi-Fi coords.
+        maximumAge: 0,
+      },
+    );
   });
 }
 
@@ -960,9 +1074,7 @@ function SosPageContent() {
   const [locationPermission, setLocationPermission] = useState<
     "unknown" | "granted" | "denied" | "unsupported"
   >("unknown");
-  const [liveGps, setLiveGps] = useState<{ lat: number; lng: number } | null>(
-    null,
-  );
+  const [liveGps, setLiveGps] = useState<GpsCoords | null>(null);
   const searchParams = useSearchParams();
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -977,6 +1089,8 @@ function SosPageContent() {
   const incidentIdRef = useRef<string | null>(null);
   const seenMessageSentAtRef = useRef<string | null>(null);
   const sessionPollIntervalRef = useRef<number | null>(null);
+  /** Continuously refreshed by watchPosition — used so SOS does not invent Boyden Gym. */
+  const lastKnownGpsRef = useRef<LastKnownGps | null>(null);
   const [mediaPermission, setMediaPermission] = useState<string | null>(null);
   const [hasProfile, setHasProfile] = useState(false);
 
@@ -1040,7 +1154,8 @@ function SosPageContent() {
       let stream: MediaStream | null = null;
 
       try {
-        const gpsPromise = getGpsCoordinates();
+        // Prefer warm watchPosition fix; never invent Boyden Gym coords.
+        const gpsPromise = resolveGpsForTriage(lastKnownGpsRef.current);
 
         stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: { ideal: "environment" } },
@@ -1079,6 +1194,13 @@ function SosPageContent() {
           gpsPromise,
         ]);
 
+        if (gps) {
+          if (isPreciseGps(gps)) {
+            lastKnownGpsRef.current = { ...gps, at: Date.now() };
+          }
+          setLiveGps(gps);
+        }
+
         stream.getTracks().forEach((track) => track.stop());
         stream = null;
         video.srcObject = null;
@@ -1102,7 +1224,7 @@ function SosPageContent() {
           body: JSON.stringify({
             image,
             audio,
-            gps,
+            ...(gps ? { gps } : {}),
             iceProfile: JSON.parse(savedProfile || "{}"),
             sessionId: currentSessionId,
             userId: "user_demo_01",
@@ -1239,6 +1361,18 @@ function SosPageContent() {
     // HELP click (user gesture) so Chrome/Safari show the system dialog.
     void requestNativeLocationAccess().then((result) => {
       setLocationPermission(result.ok ? "granted" : "denied");
+      if (result.ok && result.coords) {
+        setLiveGps(result.coords);
+        // Only seed triage cache with a precise GNSS fix — coarse Wi-Fi
+        // guesses were pinning incidents to the wrong building.
+        if (isPreciseGps(result.coords)) {
+          lastKnownGpsRef.current = { ...result.coords, at: Date.now() };
+        } else {
+          console.warn("[gps] permission fix too coarse for triage cache", {
+            accuracy: result.coords.accuracy,
+          });
+        }
+      }
     });
 
     setActiveTab("sos");
@@ -1525,16 +1659,8 @@ function SosPageContent() {
     });
   }, [dispatcherMessage, incidentId]);
 
-  // Live GPS readout while Safe Walk / Overwatch is armed
+  // Warm GPS on mount so the first triage tick has a real fix (not Boyden Gym).
   useEffect(() => {
-    if (!isSafeWalkArmed) {
-      if (watchIdRef.current !== null && navigator.geolocation) {
-        navigator.geolocation.clearWatch(watchIdRef.current);
-        watchIdRef.current = null;
-      }
-      return;
-    }
-
     if (!navigator.geolocation) {
       setLiveGps(null);
       return;
@@ -1542,15 +1668,20 @@ function SosPageContent() {
 
     watchIdRef.current = navigator.geolocation.watchPosition(
       (position) => {
-        setLiveGps({
-          lat: position.coords.latitude,
-          lng: position.coords.longitude,
-        });
+        const coords = coordsFromPosition(position);
+        setLiveGps(coords);
+        if (isPreciseGps(coords)) {
+          lastKnownGpsRef.current = { ...coords, at: Date.now() };
+        }
       },
       () => {
         // Keep last known coords on transient GPS errors
       },
-      { enableHighAccuracy: true, maximumAge: 1000, timeout: 10000 },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 0,
+        timeout: 20_000,
+      },
     );
 
     return () => {
@@ -1559,7 +1690,7 @@ function SosPageContent() {
         watchIdRef.current = null;
       }
     };
-  }, [isSafeWalkArmed]);
+  }, []);
 
   function ensureSessionForSim() {
     userProvidedContextRef.current = null;
@@ -2022,21 +2153,29 @@ function SosPageContent() {
                     <div className="flex min-h-12 items-center justify-between px-4 py-3">
                       <span className="text-base">Latitude</span>
                       <span className="text-base tabular-nums text-label-2">
-                        {!isSafeWalkArmed
-                          ? "—"
-                          : liveGps
-                            ? liveGps.lat.toFixed(5)
-                            : "Finding…"}
+                        {liveGps ? liveGps.lat.toFixed(5) : isSafeWalkArmed ? "Finding…" : "—"}
                       </span>
                     </div>
                     <div className="flex min-h-12 items-center justify-between px-4 py-3">
                       <span className="text-base">Longitude</span>
                       <span className="text-base tabular-nums text-label-2">
-                        {!isSafeWalkArmed
-                          ? "—"
+                        {liveGps ? liveGps.lng.toFixed(5) : isSafeWalkArmed ? "Finding…" : "—"}
+                      </span>
+                    </div>
+                    <div className="flex min-h-12 items-center justify-between px-4 py-3">
+                      <span className="text-base">Accuracy</span>
+                      <span
+                        className={`text-base tabular-nums ${
+                          liveGps && isPreciseGps(liveGps)
+                            ? "text-safe"
+                            : "text-label-2"
+                        }`}
+                      >
+                        {liveGps && typeof liveGps.accuracy === "number"
+                          ? `±${Math.round(liveGps.accuracy)} m`
                           : liveGps
-                            ? liveGps.lng.toFixed(5)
-                            : "Finding…"}
+                            ? "Unknown"
+                            : "—"}
                       </span>
                     </div>
                   </div>

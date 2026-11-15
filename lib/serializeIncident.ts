@@ -47,7 +47,12 @@ type LeanIncident = {
   cues?: string[] | null;
   reasons?: string[] | null;
   trend?: Trend | string | null;
-  gps?: { lat: number; lng: number } | null;
+  gps?: {
+    lat: number;
+    lng: number;
+    accuracy?: number | null;
+    altitude?: number | null;
+  } | null;
   building?: {
     name: string;
     type: string;
@@ -158,7 +163,20 @@ export function serializeIncident(doc: LeanIncident): Incident {
     cues: Array.isArray(doc.cues) ? doc.cues : [],
     reasons: Array.isArray(doc.reasons) ? doc.reasons : [],
     trend: (doc.trend as Trend) || "new",
-    ...(doc.gps ? { gps: { lat: doc.gps.lat, lng: doc.gps.lng } } : {}),
+    ...(doc.gps
+      ? {
+          gps: {
+            lat: doc.gps.lat,
+            lng: doc.gps.lng,
+            ...(typeof doc.gps.accuracy === "number"
+              ? { accuracy: doc.gps.accuracy }
+              : {}),
+            ...(typeof doc.gps.altitude === "number"
+              ? { altitude: doc.gps.altitude }
+              : {}),
+          },
+        }
+      : {}),
     ...(doc.building
       ? {
           building: {

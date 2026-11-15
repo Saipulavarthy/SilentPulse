@@ -25,6 +25,10 @@ const GpsSchema = new Schema(
   {
     lat: { type: Number, required: true },
     lng: { type: Number, required: true },
+    /** Horizontal accuracy radius in metres (Geolocation coords.accuracy). */
+    accuracy: { type: Number },
+    /** Altitude in metres when the device reports it. */
+    altitude: { type: Number },
   },
   { _id: false },
 );
