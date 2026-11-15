@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import type { Incident, Trend } from '@/types/incident';
+import { CallerMessageSection } from './CallerMessageSection';
 import type { DashIncident } from './normalize';
 import { ResponsePlanSection, type CopyState } from './ResponsePlanSection';
 import {
@@ -26,6 +27,8 @@ type Props = {
   onToggleTick: (action: string) => void;
   onCopyBrief: () => void;
   copyState: CopyState;
+  onSendCallerMessage: (text: string) => void;
+  onClearCallerMessage: () => void;
 };
 
 const TREND_LABEL: Record<Trend, string> = { new: 'New', worsening: '▲ Worsening', stable: '▬ Stable', improving: '▼ Improving' };
@@ -46,6 +49,8 @@ export function IncidentDetail({
   onToggleTick,
   onCopyBrief,
   copyState,
+  onSendCallerMessage,
+  onClearCallerMessage,
 }: Props) {
   if (!incident) {
     return (
@@ -58,11 +63,6 @@ export function IncidentDetail({
   const t = tierStyle(incident.severityScore);
   const { building, iceProfile: ice, gps } = incident;
   const floorRange = estimateFloorRange(incident);
-  const victim = Array.isArray(incident.victimInstructions)
-    ? incident.victimInstructions
-    : incident.victimInstructions
-      ? [incident.victimInstructions]
-      : [];
 
   return (
     <section className="flex min-h-0 flex-col border-l border-neutral-800" aria-label="Incident detail">
@@ -97,9 +97,22 @@ export function IncidentDetail({
           </div>
         )}
 
+        {incident.userProvidedContext && (
+          <div className="border-b border-neutral-800 px-4 py-2.5 text-[13px] text-neutral-200">
+            <span className={`${LABEL} mr-2 text-neutral-400`}>Caller selected</span>
+            {formatCallerContext(incident.userProvidedContext)}
+          </div>
+        )}
+
         <Section title="Recommended response">
           <p className="text-neutral-100">{t.response}</p>
         </Section>
+
+        <CallerMessageSection
+          incident={incident}
+          onSend={onSendCallerMessage}
+          onClear={onClearCallerMessage}
+        />
 
         <ResponsePlanSection
           incident={incident}
@@ -114,7 +127,9 @@ export function IncidentDetail({
 
         {(incident.crisisType === 'ACTIVE_THREAT' || incident.lowBandwidth || incident.classificationFailed || incident.dataIssues.length > 0) && (
           <div className="space-y-2 border-b border-neutral-800 px-4 py-3">
-            {incident.crisisType === 'ACTIVE_THREAT' && <Notice>Caller device in stealth mode. Do not call back.</Notice>}
+            {incident.crisisType === 'ACTIVE_THREAT' && (
+              <Notice>Caller device in stealth mode. Do not call back. Silent messages only.</Notice>
+            )}
             {incident.classificationFailed && <Notice>AI classification failed. Treat as unverified.</Notice>}
             {incident.lowBandwidth && (
               <Notice>
@@ -159,19 +174,6 @@ export function IncidentDetail({
             )}
           </Source>
         </Section>
-
-        {victim.length > 0 && (
-          <Section title="Suggested caller instructions">
-            <p className="mb-1 text-[11px] text-neutral-500">Not sent to the phone.</p>
-            <ul className="list-none space-y-0.5 p-0">
-              {victim.map((v) => (
-                <li key={v} className="text-neutral-300">
-                  {v}
-                </li>
-              ))}
-            </ul>
-          </Section>
-        )}
 
         <Section title="Location">
           {gps ? (
@@ -283,6 +285,12 @@ function IceRows({ ice }: { ice: NonNullable<Incident['iceProfile']> }) {
       ))}
     </Grid>
   );
+}
+
+function formatCallerContext(context: string): string {
+  if (context === 'NO_RESPONSE_RECEIVED') return 'No answer';
+  if (context === 'USER_CANCELLED_SAFE') return "I'm safe — cancelled";
+  return context;
 }
 
 function Section({ title, children }: { title: string; children: ReactNode }) {

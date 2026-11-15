@@ -76,6 +76,14 @@ const ACTIVE_CRISIS_STATES: UiState[] = [
   "unknown",
 ];
 const TELEMETRY_INTERVAL_MS = 30_000;
+/** Fast poll for dispatcher status / live message (separate from 30s triage). */
+const SESSION_POLL_INTERVAL_MS = 3_000;
+
+type DispatcherMessage = {
+  text: string;
+  sentAt: string;
+  seenAt?: string;
+};
 
 function crisisTypeToUiState(crisisType: string): UiState {
   switch (crisisType) {
@@ -432,6 +440,53 @@ function LocationIcon({ className = "h-6 w-6" }: { className?: string }) {
 /* ------------------------------------------------------------------ */
 /* Crisis building blocks                                              */
 /* ------------------------------------------------------------------ */
+
+function formatMessageTime(iso: string): string {
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+/**
+ * Dispatcher → caller live message. Shown on every crisis screen above existing
+ * content. Stealth (discreet): dim low-contrast text only — no flash/animation.
+ */
+function DispatcherMessageBanner({
+  message,
+  discreet = false,
+}: {
+  message: DispatcherMessage;
+  discreet?: boolean;
+}) {
+  const time = formatMessageTime(message.sentAt);
+  return (
+    <div
+      role="status"
+      aria-live={discreet ? "off" : "polite"}
+      className={`mb-5 ${
+        discreet
+          ? "border-l border-label-3/40 pl-3"
+          : "rounded-2xl bg-black/30 p-4 ring-1 ring-white/20"
+      }`}
+    >
+      <p
+        className={`text-xs font-semibold tracking-wide ${
+          discreet ? "text-label-3/70" : "text-white/70"
+        }`}
+      >
+        From dispatcher{time ? ` · ${time}` : ""}
+      </p>
+      <p
+        className={`mt-1 text-base font-semibold leading-snug ${
+          discreet ? "text-label-3" : "text-white"
+        }`}
+      >
+        {message.text}
+      </p>
+    </div>
+  );
+}
 
 /** Floating pill at the top of every active crisis screen. */
 function TransmittingPill({ discreet = false }: { discreet?: boolean }) {
@@ -1010,6 +1065,9 @@ function SosPageContent() {
   const [dispatcherStatus, setDispatcherStatus] = useState<
     "reviewing" | "dispatched"
   >("reviewing");
+  const [dispatcherMessage, setDispatcherMessage] =
+    useState<DispatcherMessage | null>(null);
+  const [incidentId, setIncidentId] = useState<string | null>(null);
   const [isCountingDown, setIsCountingDown] = useState(false);
   const [countdown, setCountdown] = useState(5);
   const [loadingStatusIndex, setLoadingStatusIndex] = useState(0);
@@ -1028,6 +1086,9 @@ function SosPageContent() {
   const quickActionIntervalRef = useRef<number | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const userProvidedContextRef = useRef<string | null>(null);
+  const incidentIdRef = useRef<string | null>(null);
+  const seenMessageSentAtRef = useRef<string | null>(null);
+  const sessionPollIntervalRef = useRef<number | null>(null);
   /** Continuously refreshed by watchPosition — used so SOS does not invent Boyden Gym. */
   const lastKnownGpsRef = useRef<LastKnownGps | null>(null);
   const [mediaPermission, setMediaPermission] = useState<string | null>(null);
@@ -1053,12 +1114,34 @@ function SosPageContent() {
     }
   }, []);
 
+  const clearSessionPollInterval = useCallback(() => {
+    if (sessionPollIntervalRef.current !== null) {
+      window.clearInterval(sessionPollIntervalRef.current);
+      sessionPollIntervalRef.current = null;
+    }
+  }, []);
+
   const clearCountdownInterval = useCallback(() => {
     if (countdownIntervalRef.current !== null) {
       window.clearInterval(countdownIntervalRef.current);
       countdownIntervalRef.current = null;
     }
   }, []);
+
+  const applyDispatcherMessage = useCallback(
+    (next: DispatcherMessage | null | undefined) => {
+      if (!next?.text || !next.sentAt) {
+        setDispatcherMessage(null);
+        return;
+      }
+      setDispatcherMessage({
+        text: next.text,
+        sentAt: next.sentAt,
+        ...(next.seenAt ? { seenAt: next.seenAt } : {}),
+      });
+    },
+    [],
+  );
 
   const captureAndSendTelemetry = useCallback(
     async (
@@ -1157,7 +1240,9 @@ function SosPageContent() {
         const data = (await response.json()) as {
           crisisType?: string;
           sessionId?: string;
-          dispatcherStatus?: "reviewing" | "dispatched";
+          incidentId?: string;
+          dispatcherStatus?: "reviewing" | "dispatched" | "resolved";
+          dispatcherMessage?: DispatcherMessage;
         };
         if (!data.crisisType) {
           throw new Error("Triage API returned no crisisType");
@@ -1168,9 +1253,18 @@ function SosPageContent() {
         sessionIdRef.current = resolvedSessionId;
         setSessionId(resolvedSessionId);
 
+        if (data.incidentId) {
+          incidentIdRef.current = data.incidentId;
+          setIncidentId(data.incidentId);
+        }
+
         if (data.dispatcherStatus === "dispatched") {
           setDispatcherStatus("dispatched");
+        } else if (data.dispatcherStatus === "reviewing") {
+          setDispatcherStatus("reviewing");
         }
+
+        applyDispatcherMessage(data.dispatcherMessage);
 
         const nextState = crisisTypeToUiState(data.crisisType);
         if (options.updateUi) {
@@ -1193,7 +1287,7 @@ function SosPageContent() {
         sosInFlightRef.current = false;
       }
     },
-    [],
+    [applyDispatcherMessage],
   );
 
   const triggerSOS = useCallback(async () => {
@@ -1209,6 +1303,10 @@ function SosPageContent() {
     setActiveSessionId(newSessionId);
     userProvidedContextRef.current = null;
     setUserProvidedContext(null);
+    incidentIdRef.current = null;
+    setIncidentId(null);
+    seenMessageSentAtRef.current = null;
+    setDispatcherMessage(null);
     setQuickActionCountdown(10);
     setDispatcherStatus("reviewing");
     setActiveTab("sos");
@@ -1300,22 +1398,27 @@ function SosPageContent() {
   const resetSession = useCallback(() => {
     clearCountdownInterval();
     clearTelemetryInterval();
+    clearSessionPollInterval();
     if (quickActionIntervalRef.current !== null) {
       window.clearInterval(quickActionIntervalRef.current);
       quickActionIntervalRef.current = null;
     }
     sessionIdRef.current = null;
     userProvidedContextRef.current = null;
+    incidentIdRef.current = null;
+    seenMessageSentAtRef.current = null;
     setSessionId(null);
     setActiveSessionId(null);
     setUserProvidedContext(null);
+    setIncidentId(null);
+    setDispatcherMessage(null);
     setQuickActionCountdown(10);
     setDispatcherStatus("reviewing");
     setIsCountingDown(false);
     setCountdown(5);
     setActiveTab("sos");
     setUiState("idle");
-  }, [clearCountdownInterval, clearTelemetryInterval]);
+  }, [clearCountdownInterval, clearTelemetryInterval, clearSessionPollInterval]);
 
   // "I'm safe" exit from an active crisis: tell dispatch, then stop telemetry.
   const cancelActiveSos = useCallback(async () => {
@@ -1473,6 +1576,89 @@ function SosPageContent() {
     };
   }, [uiState, sessionId, captureAndSendTelemetry, clearTelemetryInterval]);
 
+  // Lightweight session poll (~3s) for dispatcher status + live message
+  useEffect(() => {
+    clearSessionPollInterval();
+
+    const activeSession = sessionIdRef.current ?? sessionId;
+    const shouldPoll =
+      ACTIVE_CRISIS_STATES.includes(uiState) && Boolean(activeSession);
+
+    if (!shouldPoll || !activeSession) {
+      return;
+    }
+
+    const poll = async () => {
+      const sid = sessionIdRef.current ?? activeSession;
+      if (!sid) return;
+      try {
+        const res = await fetch(
+          `/api/incidents/session?sessionId=${encodeURIComponent(sid)}`,
+          { cache: "no-store" },
+        );
+        if (!res.ok) return;
+        const data = (await res.json()) as {
+          _id?: string;
+          dispatcherStatus?: "reviewing" | "dispatched" | "resolved";
+          dispatcherMessage?: DispatcherMessage;
+        };
+        if (data._id) {
+          incidentIdRef.current = data._id;
+          setIncidentId(data._id);
+        }
+        if (data.dispatcherStatus === "dispatched") {
+          setDispatcherStatus("dispatched");
+        } else if (data.dispatcherStatus === "reviewing") {
+          setDispatcherStatus("reviewing");
+        }
+        applyDispatcherMessage(data.dispatcherMessage ?? null);
+      } catch (error) {
+        console.error("Session poll failed:", error);
+      }
+    };
+
+    void poll();
+    sessionPollIntervalRef.current = window.setInterval(
+      () => void poll(),
+      SESSION_POLL_INTERVAL_MS,
+    );
+
+    return () => {
+      clearSessionPollInterval();
+    };
+  }, [
+    uiState,
+    sessionId,
+    applyDispatcherMessage,
+    clearSessionPollInterval,
+  ]);
+
+  // Report seenAt once when a new dispatcher message is first displayed
+  useEffect(() => {
+    if (!dispatcherMessage?.text || !dispatcherMessage.sentAt) return;
+    if (seenMessageSentAtRef.current === dispatcherMessage.sentAt) return;
+    if (dispatcherMessage.seenAt) {
+      seenMessageSentAtRef.current = dispatcherMessage.sentAt;
+      return;
+    }
+
+    const id = incidentIdRef.current ?? incidentId;
+    if (!id) return;
+
+    seenMessageSentAtRef.current = dispatcherMessage.sentAt;
+    void fetch(`/api/incidents/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dispatcherMessageSeen: true }),
+    }).catch((error) => {
+      console.error("dispatcherMessage seen report failed:", error);
+      // Allow a retry on the next render/poll if the report failed.
+      if (seenMessageSentAtRef.current === dispatcherMessage.sentAt) {
+        seenMessageSentAtRef.current = null;
+      }
+    });
+  }, [dispatcherMessage, incidentId]);
+
   // Warm GPS on mount so the first triage tick has a real fix (not Boyden Gym).
   useEffect(() => {
     if (!navigator.geolocation) {
@@ -1509,6 +1695,8 @@ function SosPageContent() {
   function ensureSessionForSim() {
     userProvidedContextRef.current = null;
     setUserProvidedContext(null);
+    seenMessageSentAtRef.current = null;
+    setDispatcherMessage(null);
     setQuickActionCountdown(10);
 
     if (sessionIdRef.current) {
@@ -1728,6 +1916,9 @@ function SosPageContent() {
                 footer={<CancelSosButton onCancel={() => void cancelActiveSos()} />}
               >
                 <TransmittingPill />
+                {dispatcherMessage && (
+                  <DispatcherMessageBanner message={dispatcherMessage} />
+                )}
                 <CrisisHeader
                   icon={<FlameIcon />}
                   title="Fire or hazard"
@@ -1756,6 +1947,9 @@ function SosPageContent() {
                 footer={<CancelSosButton onCancel={() => void cancelActiveSos()} />}
               >
                 <TransmittingPill />
+                {dispatcherMessage && (
+                  <DispatcherMessageBanner message={dispatcherMessage} />
+                )}
                 <CrisisHeader
                   icon={<MedicalIcon />}
                   title="Medical emergency"
@@ -1798,6 +1992,12 @@ function SosPageContent() {
                 }
               >
                 <TransmittingPill discreet />
+                {dispatcherMessage && (
+                  <DispatcherMessageBanner
+                    discreet
+                    message={dispatcherMessage}
+                  />
+                )}
                 <CrisisHeader
                   discreet
                   icon={<ShieldIcon />}
@@ -1833,6 +2033,9 @@ function SosPageContent() {
                 }
               >
                 <TransmittingPill />
+                {dispatcherMessage && (
+                  <DispatcherMessageBanner message={dispatcherMessage} />
+                )}
                 <CrisisHeader
                   icon={<QuestionIcon />}
                   title="Dispatch is on alert"
@@ -1874,6 +2077,9 @@ function SosPageContent() {
                   </div>
                 }
               >
+                {dispatcherMessage && (
+                  <DispatcherMessageBanner message={dispatcherMessage} />
+                )}
                 <CrisisHeader
                   icon={<WeakSignalIcon />}
                   title="Weak connection"

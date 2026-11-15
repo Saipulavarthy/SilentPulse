@@ -105,6 +105,17 @@ export interface Incident {
   status: IncidentStatus;
   /** Derived for the phone UI (ACTIVE→reviewing, ACKNOWLEDGED→dispatched). */
   dispatcherStatus: DispatcherStatus;
+  /**
+   * Live text from the dispatcher shown on the caller's phone.
+   * sentAt / seenAt are ISO 8601 strings.
+   */
+  dispatcherMessage?: {
+    text: string;
+    sentAt: string;
+    seenAt?: string;
+  };
+  /** Victim quick-action selection from the phone crisis UI. */
+  userProvidedContext?: string;
   /** ISO 8601 — last telemetry tick. */
   lastSeenAt?: string;
   /** True when a live session stopped sending updates (signal loss). */

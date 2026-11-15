@@ -161,6 +161,15 @@ export function normalizeIncident(value: unknown, index = 0): DashIncident | nul
   const gps = gpsOf(raw.gps, issues);
   const building = buildingOf(raw.building);
   const timeline = timelineOf(raw.timeline);
+  const userProvidedContext = str(raw.userProvidedContext);
+  const rawMsg = isObj(raw.dispatcherMessage) ? raw.dispatcherMessage : null;
+  const msgText = rawMsg ? str(rawMsg.text) : undefined;
+  const msgSentAt = rawMsg ? iso(rawMsg.sentAt) : undefined;
+  const msgSeenAt = rawMsg ? iso(rawMsg.seenAt) : undefined;
+  const dispatcherMessage =
+    msgText && msgSentAt
+      ? { text: msgText, sentAt: msgSentAt, ...(msgSeenAt ? { seenAt: msgSeenAt } : {}) }
+      : undefined;
 
   return {
     _id: idOf(raw, index),
@@ -182,6 +191,8 @@ export function normalizeIncident(value: unknown, index = 0): DashIncident | nul
     victimInstructions,
     status,
     dispatcherStatus: statusToDispatcherStatus(status),
+    ...(dispatcherMessage ? { dispatcherMessage } : {}),
+    ...(userProvidedContext ? { userProvidedContext } : {}),
     ...(lastSeenAt ? { lastSeenAt } : {}),
     escalated: Boolean(raw.escalated),
     ...(str(raw.escalationReason) ? { escalationReason: str(raw.escalationReason) } : {}),

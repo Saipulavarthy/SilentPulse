@@ -116,5 +116,60 @@ export function useIncidentFeed() {
     [mode, mutate],
   );
 
-  return { mode, incidents, sync, setStatus, mutationError, clearMutationError: () => setMutationError(null) };
+  /** Send (non-empty) or clear (empty string) the live dispatcher → caller message. */
+  const setDispatcherMessage = useCallback(
+    async (id: string, text: string) => {
+      setMutationError(null);
+      if (mode === 'mock') {
+        const now = new Date().toISOString();
+        setMockList((list) =>
+          list.map((i) => {
+            if (i._id !== id) return i;
+            if (!text.trim()) {
+              const { dispatcherMessage: _removed, ...rest } = i;
+              void _removed;
+              return rest;
+            }
+            return {
+              ...i,
+              dispatcherMessage: { text: text.trim(), sentAt: now },
+              updatedAt: now,
+            };
+          }),
+        );
+        return;
+      }
+      try {
+        await mutate(
+          async (current) => {
+            const res = await fetch(`${ENDPOINT}/${encodeURIComponent(id)}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ dispatcherMessage: text }),
+            });
+            const body = await res.json().catch(() => null);
+            if (!res.ok) throw new Error(body?.error ?? `HTTP ${res.status}`);
+            const updated = normalizeIncident(body);
+            return (current ?? []).map((i) => (i._id === id ? (updated ?? i) : i));
+          },
+          { populateCache: true, revalidate: false },
+        );
+      } catch (e) {
+        setMutationError(
+          `Could not message ${incidentNumber(id)}: ${e instanceof Error ? e.message : String(e)}.`,
+        );
+      }
+    },
+    [mode, mutate],
+  );
+
+  return {
+    mode,
+    incidents,
+    sync,
+    setStatus,
+    setDispatcherMessage,
+    mutationError,
+    clearMutationError: () => setMutationError(null),
+  };
 }

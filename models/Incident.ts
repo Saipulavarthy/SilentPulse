@@ -84,6 +84,15 @@ const TimelineEntrySchema = new Schema(
   { _id: false },
 );
 
+const DispatcherMessageSchema = new Schema(
+  {
+    text: { type: String, required: true },
+    sentAt: { type: Date, required: true },
+    seenAt: { type: Date },
+  },
+  { _id: false },
+);
+
 const ActiveIncidentSchema = new Schema(
   {
     userId: { type: String, required: true, index: true },
@@ -128,6 +137,8 @@ const ActiveIncidentSchema = new Schema(
     timeline: { type: [TimelineEntrySchema], default: [] },
     /** Victim quick-action selection from the phone crisis UI. */
     userProvidedContext: { type: String, default: null },
+    /** Live text from the dispatcher shown on the caller's phone. */
+    dispatcherMessage: { type: DispatcherMessageSchema, default: null },
     status: {
       type: String,
       enum: INCIDENT_STATUSES,
