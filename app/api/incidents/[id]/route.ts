@@ -181,3 +181,48 @@ export async function PATCH(
     );
   }
 }
+
+/**
+ * Permanently deletes one incident. Only GET handlers are prerendered under Cache
+ * Components, so this always runs per request.
+ * Note: a live phone session that ticks again after this creates a new incident.
+ */
+export async function DELETE(
+  _request: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  try {
+    const { id } = await params;
+
+    if (!mongoose.isValidObjectId(id)) {
+      return NextResponse.json(
+        { error: "Invalid incident id" },
+        { status: 400 },
+      );
+    }
+
+    await connectToDatabase();
+
+    const deleted = await ActiveIncident.findByIdAndDelete(id)
+      .select("_id")
+      .lean();
+
+    if (!deleted) {
+      return NextResponse.json(
+        { error: "Incident not found" },
+        { status: 404 },
+      );
+    }
+
+    return NextResponse.json(
+      { deleted: true, _id: String(deleted._id) },
+      { status: 200 },
+    );
+  } catch (error) {
+    console.error("[incidents] DELETE unexpected error:", error);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 },
+    );
+  }
+}

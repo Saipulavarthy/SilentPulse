@@ -5,6 +5,7 @@ import type { IncidentStatus } from '@/types/incident';
 import { FloatingDetail, FloatingQueue } from '@/components/dispatch/FloatingPanels';
 import { IncidentDetail } from '@/components/dispatch/IncidentDetail';
 import {
+  phoneStillSending,
   resolveNeedsConfirm,
   staleReopenMinutes,
   type PendingConfirm,
@@ -28,6 +29,7 @@ export default function DispatchPage() {
     sync,
     setStatus: saveStatus,
     setDispatcherMessage: saveDispatcherMessage,
+    deleteIncidents,
     mutationError,
     clearMutationError,
   } = useIncidentFeed();
@@ -40,6 +42,8 @@ export default function DispatchPage() {
   const [floatCollapsed, setFloatCollapsed] = useState({ queue: false, detail: false });
   /** Open confirmation (resolve, or reopen of a stale session), for one incident. */
   const [confirm, setConfirm] = useState<({ id: string } & PendingConfirm) | null>(null);
+  /** "Delete all resolved" prompt open (Resolved tab). */
+  const [bulkConfirm, setBulkConfirm] = useState(false);
   const [mapFocus, setMapFocus] = useState<{ lng: number; lat: number; token: number } | null>(null);
   const { now } = useClock(1000);
 
@@ -50,8 +54,8 @@ export default function DispatchPage() {
   );
   const selectedId = pickedId ?? applyFilter(incidents, 'open')[0]?._id ?? null;
   const selected = incidents.find((i) => i._id === selectedId) ?? null;
-  const { locations, confirmBuilding, clearConfirmed } = useIncidentLocations(incidents, now);
-  const { plans, generate, prefetch, ticks, toggleTick } = useResponsePlans();
+  const { locations, confirmBuilding, clearConfirmed, forget: forgetLocations } = useIncidentLocations(incidents, now);
+  const { plans, generate, prefetch, ticks, toggleTick, forget: forgetPlans } = useResponsePlans();
   const [copied, setCopied] = useState<{ id: string; state: CopyState } | null>(null);
 
   /** Copies the selected incident's radio brief (button or C). */
@@ -92,6 +96,7 @@ export default function DispatchPage() {
 
   function changeFilter(next: QueueFilter) {
     setFilter(next);
+    setBulkConfirm(false);
     const list = applyFilter(incidents, next);
     if (!list.some((i) => i._id === selectedId)) setPickedId(list[0]?._id ?? selectedId);
   }
@@ -144,15 +149,54 @@ export default function DispatchPage() {
   const confirming: PendingConfirm | null = selected && confirm?.id === selected._id ? confirm : null;
   const confirmPending = () => {
     if (!selected || !confirming) return;
-    if (confirming.kind === 'reopen') changeStatus(selected._id, 'ACTIVE', 'reopen');
+    if (confirming.kind === 'delete') void deleteOne(selected._id);
+    else if (confirming.kind === 'reopen') changeStatus(selected._id, 'ACTIVE', 'reopen');
     else changeStatus(selected._id, 'RESOLVED', 'resolve');
   };
+
+  /** Delete always asks, at any severity (button or Shift+D). */
+  const requestDelete = () => {
+    if (!selected) return;
+    setBulkConfirm(false);
+    setConfirm({ id: selected._id, kind: 'delete', stillSending: phoneStillSending(selected, Date.now()) });
+  };
+
+  /** Per-incident state kept outside the list: plans, ticks, confirmed buildings, copy feedback. */
+  function forgetIncidents(ids: string[]) {
+    forgetPlans(ids);
+    forgetLocations(ids);
+    setCopied((c) => (c && ids.includes(c.id) ? null : c));
+  }
+
+  /** Removed at once (selection moves to the next row); restored with an error if the request fails. */
+  async function deleteOne(id: string) {
+    setConfirm(null);
+    if (id === selectedId) {
+      const idx = visible.findIndex((i) => i._id === id);
+      const rest = visible.filter((i) => i._id !== id);
+      setPickedId(rest.length ? rest[Math.min(Math.max(idx, 0), rest.length - 1)]._id : null);
+    }
+    const removed = await deleteIncidents({ kind: 'one', id }, [id]);
+    if (removed) forgetIncidents(removed);
+  }
+
+  /** Delete all resolved, or every incident (reset demo). Clears the selection if it went. */
+  async function deleteBulk(kind: 'resolved' | 'all') {
+    setBulkConfirm(false);
+    setConfirm(null);
+    const ids = (kind === 'all' ? incidents : incidents.filter((i) => i.status === 'RESOLVED')).map((i) => i._id);
+    if (selectedId && ids.includes(selectedId)) setPickedId(null);
+    const removed = await deleteIncidents({ kind }, ids);
+    if (removed) forgetIncidents(removed);
+  }
+  const bulkConfirming = bulkConfirm && filter === 'resolved' && counts.resolved > 0;
 
   const actions: StatusActionHandlers = {
     onAcknowledge: acknowledge,
     onUnacknowledge: unacknowledge,
     onResolve: resolve,
     onReopen: () => reopen(),
+    onDelete: requestDelete,
     confirming,
     onConfirm: confirmPending,
     onCancelConfirm: () => setConfirm(null),
@@ -172,10 +216,23 @@ export default function DispatchPage() {
     if (key.startsWith('arrow') && target?.closest('.maplibregl-map')) return;
 
     // An open confirmation takes Enter and Esc first.
+    if (bulkConfirming && (key === 'enter' || key === 'escape')) {
+      e.preventDefault();
+      if (key === 'enter') void deleteBulk('resolved');
+      else setBulkConfirm(false);
+      return;
+    }
     if (confirming && (key === 'enter' || key === 'escape')) {
       e.preventDefault();
       if (key === 'enter') confirmPending();
       else setConfirm(null);
+      return;
+    }
+
+    // Delete is Shift+D only; a plain D does nothing.
+    if (e.shiftKey && key === 'd') {
+      e.preventDefault();
+      requestDelete();
       return;
     }
 
@@ -224,7 +281,7 @@ export default function DispatchPage() {
 
   return (
     <>
-      <TopBar incidents={incidents} now={now} sync={sync} />
+      <TopBar incidents={incidents} now={now} sync={sync} onResetDemo={() => void deleteBulk('all')} />
       {mutationError && (
         <div role="alert" className={`flex shrink-0 items-center justify-between gap-3 border-b border-red-900 bg-red-950/60 px-3 py-1.5 text-[12px] text-red-200 ${MONO}`}>
           <span>{mutationError}</span>
@@ -256,6 +313,15 @@ export default function DispatchPage() {
             now={now}
             onReopen={(id) => reopen(id)}
             locations={locations}
+            bulkDelete={{
+              confirming: bulkConfirming,
+              onRequest: () => {
+                setConfirm(null);
+                setBulkConfirm(true);
+              },
+              onConfirm: () => void deleteBulk('resolved'),
+              onCancel: () => setBulkConfirm(false),
+            }}
           />
         )}
         <div className={fullscreen ? 'absolute inset-0' : 'relative min-h-0'}>

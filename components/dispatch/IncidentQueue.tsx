@@ -15,6 +15,7 @@ import {
 } from './severity';
 import { queueLocationLabel, type IncidentLocation } from './locationEstimate';
 import { SeveritySquare } from './SeveritySquare';
+import { ConfirmButtons } from './StatusActions';
 import { ACCENT_BG, ACCENT_TEXT, FOCUS_RING, LABEL, MONO } from './ui';
 
 type Props = {
@@ -29,6 +30,8 @@ type Props = {
   /** Shown as a Reopen button on rows in the Resolved tab. */
   onReopen: (id: string) => void;
   locations?: Map<string, IncidentLocation>;
+  /** "Delete all resolved" in the Resolved tab; confirming = its prompt is open. */
+  bulkDelete: { confirming: boolean; onRequest: () => void; onConfirm: () => void; onCancel: () => void };
 };
 
 const COLS =
@@ -65,7 +68,7 @@ function useRowReorderAnimation(order: string) {
   };
 }
 
-export function IncidentQueue({ incidents, counts, filter, onFilter, selectedId, onSelect, now, onReopen, locations }: Props) {
+export function IncidentQueue({ incidents, counts, filter, onFilter, selectedId, onSelect, now, onReopen, locations, bulkDelete }: Props) {
   useEffect(() => {
     if (selectedId) document.getElementById(rowId(selectedId))?.scrollIntoView({ block: 'nearest' });
   }, [selectedId]);
@@ -94,6 +97,27 @@ export function IncidentQueue({ incidents, counts, filter, onFilter, selectedId,
           );
         })}
       </div>
+
+      {filter === 'resolved' && counts.resolved > 0 && (
+        <div className="shrink-0 border-b border-neutral-800 px-3 py-2">
+          {bulkDelete.confirming ? (
+            <div className="space-y-2" role="alertdialog" aria-label="Confirm delete all resolved">
+              <p className="text-neutral-100">{`Delete ${counts.resolved} resolved incident${counts.resolved === 1 ? '' : 's'} permanently?`}</p>
+              <ConfirmButtons onConfirm={bulkDelete.onConfirm} onCancel={bulkDelete.onCancel} compact danger />
+            </div>
+          ) : (
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={bulkDelete.onRequest}
+                className={`h-6 rounded-[2px] border border-red-900 bg-red-950/40 px-2 text-[12px] text-red-200 hover:bg-red-950 ${FOCUS_RING}`}
+              >
+                Delete all resolved ({counts.resolved})
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className={`${COLS} h-7 shrink-0 border-b border-neutral-800 pr-3 pl-[15px] ${LABEL}`} aria-hidden>
         <span>Sev</span>
@@ -198,6 +222,7 @@ export function IncidentQueue({ incidents, counts, filter, onFilter, selectedId,
         <span>C copy</span>
         <span>F full</span>
         <span>M map</span>
+        <span>Shift+D delete</span>
       </div>
     </section>
   );
