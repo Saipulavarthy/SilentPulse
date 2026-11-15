@@ -153,7 +153,12 @@ export type PhoneIceProfilePayload = {
 export type TriageRequest = {
   userId?: string;
   /** Optional — omit or leave incomplete when GPS is unavailable. */
-  gps?: { lat?: number; lng?: number };
+  gps?: {
+    lat?: number;
+    lng?: number;
+    accuracy?: number;
+    altitude?: number;
+  };
   imageBase64?: string;
   audioBase64?: string;
   /** Phone may also send duplicate `image` / `audio` — backend ignores those. */

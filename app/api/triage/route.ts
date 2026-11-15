@@ -35,18 +35,34 @@ function isSimulateCrisisType(value: unknown): value is SimulateCrisisType {
   );
 }
 
-function parseOptionalGps(
-  gps: TriageRequest["gps"],
-): { lat: number; lng: number } | undefined {
+function parseOptionalGps(gps: TriageRequest["gps"]):
+  | {
+      lat: number;
+      lng: number;
+      accuracy?: number;
+      altitude?: number;
+    }
+  | undefined {
   if (
-    typeof gps?.lat === "number" &&
-    typeof gps?.lng === "number" &&
-    !Number.isNaN(gps.lat) &&
-    !Number.isNaN(gps.lng)
+    typeof gps?.lat !== "number" ||
+    typeof gps?.lng !== "number" ||
+    Number.isNaN(gps.lat) ||
+    Number.isNaN(gps.lng)
   ) {
-    return { lat: gps.lat, lng: gps.lng };
+    return undefined;
   }
-  return undefined;
+  return {
+    lat: gps.lat,
+    lng: gps.lng,
+    ...(typeof gps.accuracy === "number" &&
+    Number.isFinite(gps.accuracy) &&
+    gps.accuracy >= 0
+      ? { accuracy: gps.accuracy }
+      : {}),
+    ...(typeof gps.altitude === "number" && Number.isFinite(gps.altitude)
+      ? { altitude: gps.altitude }
+      : {}),
+  };
 }
 
 function summarizeIce(profile: IceProfileShape | null): string {
@@ -404,9 +420,29 @@ export async function POST(request: Request) {
     const { history, previousSeverityScore } =
       historyFromSession(existingSession);
 
-    const building: Building | null = gps
+    // Resolve building from this tick's GPS. If this tick omitted GPS, keep the
+    // prior session building so a missed fix does not wipe a known location.
+    let building: Building | null = gps
       ? buildingAt(gps.lat, gps.lng)
       : null;
+    if (
+      !gps &&
+      !building &&
+      existingSession?.building &&
+      typeof existingSession.building === "object" &&
+      typeof (existingSession.building as Building).name === "string"
+    ) {
+      const prev = existingSession.building as Building;
+      building = {
+        name: prev.name,
+        type: prev.type,
+        floors: prev.floors,
+        ...(prev.notes ? { notes: prev.notes } : {}),
+      };
+      console.log("[triage] keeping prior building (no gps on this tick)", {
+        name: building.name,
+      });
+    }
 
     const {
       severityScore,
