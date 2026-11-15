@@ -38,7 +38,7 @@ const DEFAULT_THINKING_LEVEL = 'minimal';
 
 const SYSTEM_PROMPT = `You turn one incident's data into a campus dispatcher's working notes. Be specific to THIS incident; the dispatcher already knows standard procedure.
 Output:
-- radioBrief: at most 2 short sentences of plain spoken English to read over the radio: what is happening, where (building name), how many callers, and the key hazard. No IDs, no jargon.
+- radioBrief: at most 2 short sentences of plain spoken English to read over the radio: what is happening, where (use locationPhrase / buildingsInRange — name alternatives with "or" when multiple; if more than three say "the area around X"), how many callers, and the key hazard. No IDs, no jargon. If locationConfidence is "multiple", unknowns must ask which building the caller is in.
 - risks: at most ${MAX_RISKS}, most important first. Each risk states its consequence for responders or the caller (what could go wrong, be delayed or be missed). A fact with no consequence, such as which way an entrance faces, is not a risk; use it in an action or leave it out.
 - actions: at most ${MAX_ACTIONS} imperative steps, in order.
 - unknowns: at most ${MAX_UNKNOWNS} short questions about the scene, most important first: location, people involved, hazards, what is happening. Never ask about or speculate from the caller's medical profile.
@@ -99,7 +99,13 @@ function parseRequest(body: unknown): PlanRequest | null {
   const otherCallers = Array.isArray(b?.otherCallers)
     ? b.otherCallers.filter((o) => o && typeof o.createdAt === 'string' && typeof o.severityScore === 'number')
     : [];
-  return { incident: { ...i, iceProfile: i.iceProfile ?? null }, building: b?.building ?? null, otherCallers };
+  return {
+    incident: { ...i, iceProfile: i.iceProfile ?? null },
+    building: b?.building ?? null,
+    buildingsInRange: Array.isArray(b?.buildingsInRange) ? b.buildingsInRange : undefined,
+    locationConfidence: b?.locationConfidence,
+    otherCallers,
+  };
 }
 
 export async function POST(request: Request): Promise<Response> {
@@ -127,7 +133,11 @@ export async function POST(request: Request): Promise<Response> {
     { model: modelName, systemInstruction: SYSTEM_PROMPT, generationConfig },
     { timeout: TIMEOUT_MS },
   );
-  const facts = planFacts(input.incident, input.building, input.otherCallers);
+  const locOpts = {
+    buildingsInRange: input.buildingsInRange,
+    locationConfidence: input.locationConfidence,
+  };
+  const facts = planFacts(input.incident, input.building, input.otherCallers, Date.now(), locOpts);
 
   let text: string;
   try {
@@ -167,7 +177,7 @@ export async function POST(request: Request): Promise<Response> {
     return fail('invalid_output', `Gemini output did not match the plan format: ${checked.problems.slice(0, 3).join('; ')}.`);
   }
   // Exact counts and times come from the input, not the model.
-  checked.plan.situation = situationLine(input.incident, input.building, input.otherCallers);
+  checked.plan.situation = situationLine(input.incident, input.building, input.otherCallers, Date.now(), locOpts);
 
   return reply({
     ok: true,

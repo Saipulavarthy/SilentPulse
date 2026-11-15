@@ -16,6 +16,7 @@ import { TopBar } from '@/components/dispatch/TopBar';
 import { FILTERS, applyFilter, type QueueFilter } from '@/components/dispatch/severity';
 import { useClock } from '@/components/dispatch/useClock';
 import { useIncidentFeed } from '@/components/dispatch/useIncidentFeed';
+import { useIncidentLocations } from '@/components/dispatch/useIncidentLocations';
 import type { CopyState } from '@/components/dispatch/ResponsePlanSection';
 import { planContext, useResponsePlans } from '@/components/dispatch/useResponsePlans';
 import { MONO } from '@/components/dispatch/ui';
@@ -39,6 +40,7 @@ export default function DispatchPage() {
   const [floatCollapsed, setFloatCollapsed] = useState({ queue: false, detail: false });
   /** Open confirmation (resolve, or reopen of a stale session), for one incident. */
   const [confirm, setConfirm] = useState<({ id: string } & PendingConfirm) | null>(null);
+  const [mapFocus, setMapFocus] = useState<{ lng: number; lat: number; token: number } | null>(null);
   const { now } = useClock(1000);
 
   const visible = useMemo(() => applyFilter(incidents, filter), [incidents, filter]);
@@ -48,6 +50,7 @@ export default function DispatchPage() {
   );
   const selectedId = pickedId ?? applyFilter(incidents, 'open')[0]?._id ?? null;
   const selected = incidents.find((i) => i._id === selectedId) ?? null;
+  const { locations, confirmBuilding, clearConfirmed } = useIncidentLocations(incidents, now);
   const { plans, generate, prefetch, ticks, toggleTick } = useResponsePlans();
   const [copied, setCopied] = useState<{ id: string; state: CopyState } | null>(null);
 
@@ -78,14 +81,14 @@ export default function DispatchPage() {
 
   /** On demand (button or G): plan for the selected incident, any severity. */
   function generatePlan() {
-    if (selected) generate(selected, planContext(selected, incidents));
+    if (selected) generate(selected, planContext(selected, incidents, locations));
   }
 
   // Background plans for severity ≥ 7 incidents that are new or changed. This reacts to the
   // incident list changing; it is deliberately not called from inside the polling fetch.
   useEffect(() => {
-    prefetch(incidents);
-  }, [incidents, prefetch]);
+    prefetch(incidents, locations);
+  }, [incidents, locations, prefetch]);
 
   function changeFilter(next: QueueFilter) {
     setFilter(next);
@@ -240,6 +243,7 @@ export default function DispatchPage() {
             onSelect={select}
             collapsed={floatCollapsed.queue}
             onToggle={() => setFloatCollapsed((c) => ({ ...c, queue: !c.queue }))}
+            locations={locations}
           />
         ) : (
           <IncidentQueue
@@ -251,6 +255,7 @@ export default function DispatchPage() {
             onSelect={select}
             now={now}
             onReopen={(id) => reopen(id)}
+            locations={locations}
           />
         )}
         <div className={fullscreen ? 'absolute inset-0' : 'relative min-h-0'}>
@@ -260,6 +265,8 @@ export default function DispatchPage() {
             onSelect={select}
             fullscreen={fullscreen}
             onToggleFullscreen={() => setFullscreen((v) => !v)}
+            locations={locations}
+            focus={mapFocus}
           />
         </div>
         {fullscreen ? (
@@ -269,6 +276,7 @@ export default function DispatchPage() {
             collapsed={floatCollapsed.detail}
             onToggle={() => setFloatCollapsed((c) => ({ ...c, detail: !c.detail }))}
             actions={actions}
+            location={selected ? locations.get(selected._id) : undefined}
           />
         ) : (
           <IncidentDetail
@@ -283,6 +291,10 @@ export default function DispatchPage() {
             copyState={copied && copied.id === selected?._id ? copied.state : null}
             onSendCallerMessage={(text) => selected && void saveDispatcherMessage(selected._id, text)}
             onClearCallerMessage={() => selected && void saveDispatcherMessage(selected._id, '')}
+            location={selected ? locations.get(selected._id) : undefined}
+            onConfirmBuilding={(osmId) => selected && confirmBuilding(selected._id, osmId)}
+            onClearConfirmedBuilding={() => selected && clearConfirmed(selected._id)}
+            onFlyToBuilding={(lng, lat) => setMapFocus({ lng, lat, token: Date.now() })}
           />
         )}
       </main>

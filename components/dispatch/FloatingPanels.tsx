@@ -2,6 +2,7 @@
 
 import type { ReactNode } from 'react';
 import type { DashIncident } from './normalize';
+import { queueLocationLabel, type IncidentLocation } from './locationEstimate';
 import { incidentNumber, locationLabel, tierStyle, typeLabel } from './severity';
 import { SeveritySquare } from './SeveritySquare';
 import { StatusActions, type StatusActionHandlers } from './StatusActions';
@@ -39,6 +40,7 @@ export function FloatingQueue({
   onSelect,
   collapsed,
   onToggle,
+  locations,
 }: {
   incidents: DashIncident[];
   title: string;
@@ -46,6 +48,7 @@ export function FloatingQueue({
   onSelect: (id: string) => void;
   collapsed: boolean;
   onToggle: () => void;
+  locations?: Map<string, IncidentLocation>;
 }) {
   return (
     <section aria-label="Incident queue (full screen)" className={`${FLOAT} absolute top-3 left-[132px] z-10 w-[330px]`}>
@@ -72,7 +75,9 @@ export function FloatingQueue({
                     {typeLabel(i)}
                     {i.escalated && <span className="ml-1.5 text-[10px] text-red-300 uppercase">· signal lost</span>}
                   </span>
-                  <span className="block truncate text-[11px] text-neutral-400">{locationLabel(i)}</span>
+                  <span className="block truncate text-[11px] text-neutral-400">
+                    {locations?.get(i._id) ? queueLocationLabel(locations.get(i._id)!).text : locationLabel(i)}
+                  </span>
                 </span>
               </div>
             );
@@ -90,12 +95,14 @@ export function FloatingDetail({
   collapsed,
   onToggle,
   actions,
+  location,
 }: {
   incident: DashIncident | null;
   plan: PlanEntry | undefined;
   collapsed: boolean;
   onToggle: () => void;
   actions: StatusActionHandlers;
+  location?: IncidentLocation;
 }) {
   return (
     <section aria-label="Selected incident (full screen)" className={`${FLOAT} absolute top-3 right-3 z-10 w-[340px]`}>
@@ -110,7 +117,9 @@ export function FloatingDetail({
                 {incident.escalated && <span className="ml-2 text-red-300">SIGNAL LOST</span>}
               </div>
               <div className="truncate text-[15px] font-semibold text-neutral-50">{typeLabel(incident)}</div>
-              <div className="truncate text-[12px] text-neutral-300">{locationLabel(incident)}</div>
+              <div className="truncate text-[12px] text-neutral-300">
+                {location ? queueLocationLabel(location).text : locationLabel(incident)}
+              </div>
             </div>
           </div>
           <div>

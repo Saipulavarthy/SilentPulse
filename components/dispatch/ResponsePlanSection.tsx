@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import type { Incident } from '@/types/incident';
 import type { PlanItem, PlanSource } from '@/types/responsePlan';
+import type { IncidentLocation } from './locationEstimate';
 import { FOCUS_RING, LABEL, MONO } from './ui';
 import { planBasis, type PlanEntry } from './useResponsePlans';
 
@@ -8,6 +9,7 @@ export type CopyState = 'copied' | 'failed' | null;
 
 type Props = {
   incident: Incident;
+  location?: IncidentLocation;
   entry: PlanEntry | undefined;
   onGenerate: () => void;
   /** Page clock (ms), for the elapsed time while generating. */
@@ -35,7 +37,17 @@ const clock = (iso: string) => {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 };
 
-export function ResponsePlanSection({ incident, entry, onGenerate, now, ticked, onToggleTick, onCopy, copyState }: Props) {
+export function ResponsePlanSection({
+  incident,
+  location,
+  entry,
+  onGenerate,
+  now,
+  ticked,
+  onToggleTick,
+  onCopy,
+  copyState,
+}: Props) {
   return (
     <section className="border-b border-neutral-800 px-4 py-3" aria-label="Response plan" aria-busy={entry?.status === 'loading'}>
       <h3 className={`${LABEL} mb-2`}>Response plan</h3>
@@ -70,6 +82,7 @@ export function ResponsePlanSection({ incident, entry, onGenerate, now, ticked, 
       {entry?.status === 'ready' && (
         <ReadyPlan
           incident={incident}
+          location={location}
           entry={entry}
           onGenerate={onGenerate}
           ticked={ticked}
@@ -84,6 +97,7 @@ export function ResponsePlanSection({ incident, entry, onGenerate, now, ticked, 
 
 function ReadyPlan({
   incident,
+  location: incidentLocation,
   entry,
   onGenerate,
   ticked,
@@ -92,6 +106,7 @@ function ReadyPlan({
   copyState,
 }: {
   incident: Incident;
+  location?: IncidentLocation;
   entry: Extract<PlanEntry, { status: 'ready' }>;
   onGenerate: () => void;
   ticked: string[];
@@ -101,7 +116,7 @@ function ReadyPlan({
 }) {
   const { plan } = entry;
   const ai = entry.source === 'ai';
-  const outOfDate = entry.basis !== planBasis(incident);
+  const outOfDate = entry.basis !== planBasis(incident, incidentLocation);
 
   return (
     <div className="space-y-3">

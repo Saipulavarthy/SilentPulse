@@ -13,6 +13,7 @@ import {
   typeLabel,
   type QueueFilter,
 } from './severity';
+import { queueLocationLabel, type IncidentLocation } from './locationEstimate';
 import { SeveritySquare } from './SeveritySquare';
 import { ACCENT_BG, ACCENT_TEXT, FOCUS_RING, LABEL, MONO } from './ui';
 
@@ -27,6 +28,7 @@ type Props = {
   now: number | null;
   /** Shown as a Reopen button on rows in the Resolved tab. */
   onReopen: (id: string) => void;
+  locations?: Map<string, IncidentLocation>;
 };
 
 const COLS =
@@ -63,7 +65,7 @@ function useRowReorderAnimation(order: string) {
   };
 }
 
-export function IncidentQueue({ incidents, counts, filter, onFilter, selectedId, onSelect, now, onReopen }: Props) {
+export function IncidentQueue({ incidents, counts, filter, onFilter, selectedId, onSelect, now, onReopen, locations }: Props) {
   useEffect(() => {
     if (selectedId) document.getElementById(rowId(selectedId))?.scrollIntoView({ block: 'nearest' });
   }, [selectedId]);
@@ -138,9 +140,18 @@ export function IncidentQueue({ incidents, counts, filter, onFilter, selectedId,
                 <span className="truncate">{typeLabel(incident)}</span>
                 {incident.simulated && <RowTag>Sim</RowTag>}
               </span>
-              <span className={`truncate ${incident.gps || incident.building ? 'text-neutral-400' : 'text-neutral-600'}`} title={locationLabel(incident)}>
-                {locationLabel(incident)}
-              </span>
+              {(() => {
+                const loc = locations?.get(incident._id);
+                const label = loc ? queueLocationLabel(loc) : { text: locationLabel(incident), title: locationLabel(incident) };
+                return (
+                  <span
+                    className={`truncate ${incident.gps || incident.building || loc?.buildings.length ? 'text-neutral-400' : 'text-neutral-600'}`}
+                    title={label.title}
+                  >
+                    {label.text}
+                  </span>
+                );
+              })()}
               <span className={`${MONO} text-right text-[12px]`}>{elapsed(incident.createdAt, now)}</span>
               <span className={`flex items-center gap-1.5 ${MONO} text-[10px]`}>
                 {filter === 'resolved' && incident.status === 'RESOLVED' ? (

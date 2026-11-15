@@ -3,6 +3,7 @@
 import dynamic from 'next/dynamic';
 import { MapErrorBoundary } from './MapErrorBoundary';
 import type { Incident } from '@/types/incident';
+import type { IncidentLocation } from './locationEstimate';
 import { TIERS, TIER_STYLES } from './severity';
 import { LABEL, MONO } from './ui';
 
@@ -13,6 +14,10 @@ export type MapPanelProps = {
   /** Full-screen map (F); the control in the map's stack shows and toggles it. */
   fullscreen?: boolean;
   onToggleFullscreen?: () => void;
+  /** GPS uncertainty + buildings in range, keyed by incident id. */
+  locations?: Map<string, IncidentLocation>;
+  /** Detail panel: fly the camera to a named building. */
+  focus?: { lng: number; lat: number; token: number } | null;
 };
 
 function MapLoading() {
