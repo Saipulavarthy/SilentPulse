@@ -26,20 +26,46 @@ const PRESETS_BY_TYPE: Record<CrisisType, readonly string[]> = {
   UNKNOWN: [...PRESETS_ANY],
 };
 
+/** Join AI / static victim steps into one phone-safe intro (≤140 chars). */
+export function introFromInstructions(incident: Pick<Incident, 'victimInstructions'>): string {
+  const raw = incident.victimInstructions;
+  const parts = Array.isArray(raw) ? raw : raw ? [raw] : [];
+  const joined = parts
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .join(' ');
+  return joined.slice(0, MAX_LEN);
+}
+
 type Props = {
   incident: Incident;
   onSend: (text: string) => void;
   onClear: () => void;
 };
 
-/** Remounts when the selected incident changes so the draft field resets. */
+/**
+ * Remounts when the incident or its live message identity changes so:
+ * - first open seeds the draft from suggested instructions
+ * - after send, compose is empty for follow-ups
+ * - after clear, the intro is offered again
+ */
 export function CallerMessageSection({ incident, onSend, onClear }: Props) {
-  return <CallerMessageForm key={incident._id} incident={incident} onSend={onSend} onClear={onClear} />;
+  const messageKey = incident.dispatcherMessage?.sentAt ?? 'draft';
+  return (
+    <CallerMessageForm
+      key={`${incident._id}:${messageKey}`}
+      incident={incident}
+      onSend={onSend}
+      onClear={onClear}
+    />
+  );
 }
 
 function CallerMessageForm({ incident, onSend, onClear }: Props) {
-  const [draft, setDraft] = useState('');
+  const intro = introFromInstructions(incident);
   const existing = incident.dispatcherMessage;
+  const firstSend = !existing;
+  const [draft, setDraft] = useState(() => (firstSend ? intro : ''));
   const resolved = incident.status === 'RESOLVED';
   const noSession = !incident.sessionId;
   const disabled = resolved || noSession;
@@ -88,25 +114,44 @@ function CallerMessageForm({ incident, onSend, onClear }: Props) {
         </div>
       )}
 
+      {firstSend && !disabled && intro && (
+        <p className="mb-2 text-[12px] text-neutral-400">
+          Intro from suggested instructions — edit if needed, then confirm Send. You can send follow-ups after.
+        </p>
+      )}
+      {firstSend && !disabled && !intro && (
+        <p className="mb-2 text-[12px] text-neutral-500">No suggested intro yet — type the first message to the caller.</p>
+      )}
+      {!firstSend && !disabled && (
+        <p className="mb-2 text-[12px] text-neutral-500">Send another message, or use a preset.</p>
+      )}
+
       <form onSubmit={submit} className="space-y-2">
         <div className="flex gap-2">
-          <input
-            type="text"
+          <textarea
             value={draft}
             maxLength={MAX_LEN}
             disabled={disabled}
+            rows={firstSend ? 3 : 2}
             onChange={(e) => setDraft(e.target.value.slice(0, MAX_LEN))}
-            placeholder={disabled ? 'Messaging unavailable' : 'Type a message…'}
-            aria-label="Message to caller"
-            className={`min-w-0 flex-1 rounded-[2px] border border-neutral-700 bg-neutral-950 px-2.5 py-1.5 text-[13px] text-neutral-100 placeholder:text-neutral-600 disabled:opacity-50 ${FOCUS_RING}`}
+            onKeyDown={(e) => {
+              // Enter sends; Shift+Enter inserts a line break.
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                submit();
+              }
+            }}
+            placeholder={disabled ? 'Messaging unavailable' : firstSend ? 'Edit intro before sending…' : 'Type a follow-up…'}
+            aria-label={firstSend ? 'Intro message to caller' : 'Follow-up message to caller'}
+            className={`min-w-0 flex-1 resize-y rounded-[2px] border border-neutral-700 bg-neutral-950 px-2.5 py-1.5 text-[13px] leading-snug text-neutral-100 placeholder:text-neutral-600 disabled:opacity-50 ${FOCUS_RING}`}
           />
           <button
             type="submit"
             disabled={disabled || !draft.trim()}
             aria-keyshortcuts="Enter"
-            className={`flex h-[34px] shrink-0 items-center gap-2 rounded-[2px] border border-neutral-700 bg-neutral-900 px-2.5 text-neutral-100 hover:bg-neutral-800 disabled:opacity-40 ${FOCUS_RING}`}
+            className={`flex h-[34px] shrink-0 items-center gap-2 self-end rounded-[2px] border border-neutral-700 bg-neutral-900 px-2.5 text-neutral-100 hover:bg-neutral-800 disabled:opacity-40 ${FOCUS_RING}`}
           >
-            Send
+            {firstSend ? 'Send intro' : 'Send'}
             <kbd className={`${MONO} rounded-[2px] border border-current/30 px-1 text-[11px] text-neutral-500`}>Enter</kbd>
           </button>
         </div>
@@ -122,6 +167,9 @@ function CallerMessageForm({ incident, onSend, onClear }: Props) {
               {preset}
             </PresetButton>
           ))}
+          {firstSend && intro && draft !== intro && (
+            <PresetButton onClick={() => setDraft(intro)}>Reset to suggested</PresetButton>
+          )}
         </div>
       )}
     </section>

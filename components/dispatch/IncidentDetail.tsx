@@ -63,11 +63,6 @@ export function IncidentDetail({
   const t = tierStyle(incident.severityScore);
   const { building, iceProfile: ice, gps } = incident;
   const floorRange = estimateFloorRange(incident);
-  const victim = Array.isArray(incident.victimInstructions)
-    ? incident.victimInstructions
-    : incident.victimInstructions
-      ? [incident.victimInstructions]
-      : [];
 
   return (
     <section className="flex min-h-0 flex-col border-l border-neutral-800" aria-label="Incident detail">
@@ -179,19 +174,6 @@ export function IncidentDetail({
             )}
           </Source>
         </Section>
-
-        {victim.length > 0 && (
-          <Section title="Suggested caller instructions">
-            <p className="mb-1 text-[11px] text-neutral-500">Not sent to the phone.</p>
-            <ul className="list-none space-y-0.5 p-0">
-              {victim.map((v) => (
-                <li key={v} className="text-neutral-300">
-                  {v}
-                </li>
-              ))}
-            </ul>
-          </Section>
-        )}
 
         <Section title="Location">
           {gps ? (

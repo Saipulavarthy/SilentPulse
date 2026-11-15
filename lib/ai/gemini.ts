@@ -13,6 +13,9 @@ import {
 
 export const GEMINI_TIMEOUT_MS = 20_000;
 
+/** Same env override as /api/response-plan; free-tier 2.5-flash quotas burn fast. */
+const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
+
 const PERCEPTION_TYPES = [
   "ENVIRONMENTAL_HAZARD",
   "MEDICAL_CRISIS",
@@ -137,10 +140,13 @@ export async function classifyWithGemini(
     return { crisisType: "UNKNOWN", classificationFailed: true, cues: [] };
   }
 
+  const modelName =
+    process.env.GEMINI_MODEL?.trim() || DEFAULT_GEMINI_MODEL;
+
   try {
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({
-      model: "gemini-2.5-flash",
+      model: modelName,
       systemInstruction: GEMINI_SYSTEM_INSTRUCTION,
       generationConfig: {
         temperature: 0.2,
@@ -149,6 +155,7 @@ export async function classifyWithGemini(
         responseSchema: GEMINI_RESPONSE_SCHEMA,
       },
     });
+    console.log("[triage] Gemini model:", modelName);
 
     const parts: Array<
       | { text: string }
